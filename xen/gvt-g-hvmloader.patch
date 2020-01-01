@@ -1,0 +1,164 @@
+diff -uNr --show-c-function xen-4.12.0/tools/firmware/hvmloader/config.h xen-4.12.0.new/tools/firmware/hvmloader/config.h
+--- xen-4.12.0/tools/firmware/hvmloader/config.h	2019-04-01 14:03:23.000000000 +0300
++++ xen-4.12.0.new/tools/firmware/hvmloader/config.h	2019-09-05 18:07:49.749885207 +0300
+@@ -3,11 +3,11 @@
+ 
+ #include <stdint.h>
+ 
+-enum virtual_vga { VGA_none, VGA_std, VGA_cirrus, VGA_pt };
++enum virtual_vga { VGA_none, VGA_std, VGA_cirrus, VGA_pt, VGA_vgt };
+ extern enum virtual_vga virtual_vga;
+ 
+ extern unsigned long igd_opregion_pgbase;
+-#define IGD_OPREGION_PAGES 3
++#define IGD_OPREGION_PAGES 2
+ 
+ struct bios_config {
+     const char *name;
+diff -uNr --show-c-function xen-4.12.0/tools/firmware/hvmloader/pci.c xen-4.12.0.new/tools/firmware/hvmloader/pci.c
+--- xen-4.12.0/tools/firmware/hvmloader/pci.c	2019-04-01 14:03:23.000000000 +0300
++++ xen-4.12.0.new/tools/firmware/hvmloader/pci.c	2019-09-05 18:07:49.749885207 +0300
+@@ -23,6 +23,7 @@
+ #include "hypercall.h"
+ #include "config.h"
+ #include "pci_regs.h"
++#include "vgt.h"
+ 
+ #include <xen/memory.h>
+ #include <xen/hvm/ioreq.h>
+@@ -76,6 +77,9 @@ static int find_next_rmrr(uint32_t base)
+     return next_rmrr;
+ }
+ 
++#define VESA_MMIO_RSVD_START 0xe0000000UL
++#define VESA_MMIO_RSVD_END   0xe0130000UL
++
+ void pci_setup(void)
+ {
+     uint8_t is_64bar, using_64bar, bar64_relocate = 0;
+@@ -84,6 +88,7 @@ void pci_setup(void)
+     uint32_t vga_devfn = 256;
+     uint16_t class, vendor_id, device_id;
+     unsigned int bar, pin, link, isa_irq;
++    uint8_t is_x8086 = 0;
+ 
+     /* Resources assignable to PCI devices via BARs. */
+     struct resource {
+@@ -174,17 +187,9 @@ void pci_setup(void)
+             {
+                 vga_devfn = devfn;
+                 virtual_vga = VGA_pt;
++
+                 if ( vendor_id == 0x8086 )
+-                {
+-                    igd_opregion_pgbase = mem_hole_alloc(IGD_OPREGION_PAGES);
+-                    /*
+-                     * Write the the OpRegion offset to give the opregion
+-                     * address to the device model. The device model will trap 
+-                     * and map the OpRegion at the give address.
+-                     */
+-                    pci_writel(vga_devfn, PCI_INTEL_OPREGION,
+-                               igd_opregion_pgbase << PAGE_SHIFT);
+-                }
++                    is_x8086 = 1;
+             }
+             break;
+         case 0x0680:
+@@ -355,6 +360,11 @@ void pci_setup(void)
+         bar64_relocate = 1;
+     }
+ 
++    if(vga_devfn != 256 && bar64_relocate)
++    {
++        pci_mem_start += (32ULL << 20);
++    }
++
+     /* Relocate RAM that overlaps PCI space (in 64k-page chunks). */
+     while ( (pci_mem_start >> PAGE_SHIFT) < hvm_info->low_mem_pgend )
+     {
+@@ -477,6 +487,15 @@ void pci_setup(void)
+ 
+         bar_data |= (uint32_t)base;
+         bar_data_upper = (uint32_t)(base >> 32);
++
++	/* Skip allocate the reserved range by vesafb */
++	if (resource == &mem_resource &&
++	      (base + bar_sz > VESA_MMIO_RSVD_START) && (base < VESA_MMIO_RSVD_END)) {
++		resource->base = VESA_MMIO_RSVD_END;
++		base = (resource->base  + bar_sz - 1) & ~(uint64_t)(bar_sz - 1);
++		bar_data |= (uint32_t)base;
++	}
++
+         base += bar_sz;
+ 
+         if ( (base < resource->base) || (base > resource->max) )
+@@ -521,6 +540,41 @@ void pci_setup(void)
+ 
+     if ( vga_devfn != 256 )
+     {
++        if ( is_x8086 )
++        {
++            uint32_t bar = pci_readl(vga_devfn, PCI_BASE_ADDRESS_0)
++                                        & PCI_BASE_ADDRESS_MEM_MASK;
++
++            void *pvinfo = (void *)bar + VGT_PVINFO_PAGE;
++            uint64_t *magic = pvinfo;
++
++            if (*magic == VGT_MAGIC) {
++                /*
++                 * Found VGT device, and use standard VGA bios.
++                 */
++                virtual_vga = VGA_vgt;
++
++                /* XXX: we use this hack to tell vGT driver the
++                 * top of <4G mem, so vGT can avoid unnecessary
++                 * attempts to map the mem hole. This optimization
++                 * can speed up guest bootup time and improve Win7
++                 * SMP guest's stability.
++                 * NOTE: here we're actually trying to write 32 bits
++                 * into VENDOR_ID and DEVICE_ID -- we assume normally
++                 * sane codes in guest won't do this...
++                 */
++                 pci_writel(vga_devfn, PCI_VENDOR_ID, hvm_info->low_mem_pgend);
++            }
++
++            igd_opregion_pgbase = mem_hole_alloc(IGD_OPREGION_PAGES);
++            /*
++             * Write the the OpRegion offset to give the opregion
++             * address to the device model. The device model will trap
++             * and map the OpRegion at the give address.
++             */
++            pci_writel(vga_devfn, PCI_INTEL_OPREGION,
++                       igd_opregion_pgbase << PAGE_SHIFT);
++        }
+         /*
+          * VGA registers live in I/O space so ensure that primary VGA
+          * has IO enabled, even if there is no I/O BAR on that
+diff -uNr --show-c-function xen-4.12.0/tools/firmware/hvmloader/vgt.h xen-4.12.0.new/tools/firmware/hvmloader/vgt.h
+--- xen-4.12.0/tools/firmware/hvmloader/vgt.h	1970-01-01 03:00:00.000000000 +0300
++++ xen-4.12.0.new/tools/firmware/hvmloader/vgt.h	2019-09-05 18:07:49.750885209 +0300
+@@ -0,0 +1,24 @@
++/*
++ * Copyright (c) 2012-2013, Intel Corporation.
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms and conditions of the GNU General Public License,
++ * version 2, as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
++ * more details.
++ *
++ * You should have received a copy of the GNU General Public License along with
++ * this program; if not, write to the Free Software Foundation, Inc.,
++ * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
++ */
++
++#ifndef _VGT_DEVTABLE_H
++#define _VGT_DEVTABLE_H
++
++#define VGT_PVINFO_PAGE        0x78000
++#define VGT_MAGIC              0x4776544776544776    /* 'vGTvGTvG' */
++
++#endif  /* _VGT_DEVTABLE_H */

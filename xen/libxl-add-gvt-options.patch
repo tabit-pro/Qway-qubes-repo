@@ -1,0 +1,131 @@
+diff -ruNp xen-4.12.1/tools/libxl/libxl_dm.c xen-4.12.1.new/tools/libxl/libxl_dm.c
+--- xen-4.12.1/tools/libxl/libxl_dm.c	2019-12-20 14:14:18.177409946 +0300
++++ xen-4.12.1.new/tools/libxl/libxl_dm.c	2019-12-20 12:09:09.334905357 +0300
+@@ -1422,6 +1424,18 @@ static int libxl__build_device_model_arg
+                 GCSPRINTF("qxl-vga,vram_size_mb=%"PRIu64",ram_size_mb=%"PRIu64,
+                 (b_info->video_memkb/2/1024), (b_info->video_memkb/2/1024) ) );
+             break;
++        case LIBXL_VGA_INTERFACE_TYPE_XENGT:
++            flexarray_vappend(dm_args, "-vga", "xengt", NULL);
++            if (b_info->u.hvm.vgt_low_gm_sz)
++                flexarray_vappend(dm_args, "-vgt_low_gm_sz",
++                    libxl__sprintf(gc, "%d", b_info->u.hvm.vgt_low_gm_sz), NULL);
++            if (b_info->u.hvm.vgt_high_gm_sz) 
++                flexarray_vappend(dm_args, "-vgt_high_gm_sz",
++                    libxl__sprintf(gc, "%d", b_info->u.hvm.vgt_high_gm_sz), NULL);
++            if (b_info->u.hvm.vgt_fence_sz) 
++                flexarray_vappend(dm_args, "-vgt_fence_sz",
++                    libxl__sprintf(gc, "%d", b_info->u.hvm.vgt_fence_sz), NULL);
++	    break;
+         default:
+             LOGD(ERROR, guest_domid, "Invalid emulated video card specified");
+             return ERROR_INVAL;
+diff -ruNp xen-4.12.1/tools/libxl/libxl_domain.c xen-4.12.1.new/tools/libxl/libxl_domain.c
+--- xen-4.12.1/tools/libxl/libxl_domain.c	2019-08-09 13:44:35.000000000 +0300
++++ xen-4.12.1.new/tools/libxl/libxl_domain.c	2019-12-18 17:50:45.905336726 +0300
+@@ -935,6 +935,30 @@ static void domain_destroy_callback(libx
+ static void destroy_finish_check(libxl__egc *egc,
+                                  libxl__domain_destroy_state *dds);
+ 
++/* We don't care the return value:
++ * 1) the guest may not be a VGT guest;
++ * 2) normally when a VGT guest shutdown, the ioemu has already tried to
++ * destroy the vgt instance and we shouldn't come here by "xl dest dom_id".
++ * 3) we come here because the ioemu didn't destroy the vgt instance
++ * successfully(e.g., ioemu exits abnormally) or we want to kill the guest by
++ * force while it's running. In this case, we still try our best to destroy
++ * the vgt instance.
++ */
++static void destroy_vgt_instance(int domid)
++{
++    const char *path = "/sys/kernel/vgt/control/create_vgt_instance";
++    FILE *vgt_file;
++
++    if (domid <= 0)
++        return;
++
++    if ((vgt_file = fopen(path, "w")) == NULL)
++        return;
++
++    (void)fprintf(vgt_file, "%d\n", -domid);
++    (void)fclose(vgt_file);
++}
++
+ void libxl__domain_destroy(libxl__egc *egc, libxl__domain_destroy_state *dds)
+ {
+     STATE_AO_GC(dds->ao);
+@@ -1147,6 +1171,8 @@ static void devices_destroy_cb(libxl__eg
+     }
+     libxl__userdata_destroyall(gc, domid);
+ 
++    destroy_vgt_instance(domid);
++
+     libxl__unlock_domain_userdata(lock);
+ 
+     /* Clean up qemu-save and qemu-resume files. They are
+diff -ruNp xen-4.12.1/tools/libxl/libxl_types.idl xen-4.12.1.new/tools/libxl/libxl_types.idl
+--- xen-4.12.1/tools/libxl/libxl_types.idl	2019-12-20 14:14:18.177409946 +0300
++++ xen-4.12.1.new/tools/libxl/libxl_types.idl	2019-12-20 19:09:06.079432986 +0300
+@@ -38,6 +38,7 @@ libxl_ms_vm_genid = Builtin("ms_vm_genid
+ #
+ 
+ MemKB = UInt(64, init_val = "LIBXL_MEMKB_DEFAULT", json_gen_fn = "libxl__uint64_gen_json")
++VgtInt = UInt(32, init_val = "0UL")
+ 
+ #
+ # Constants / Enumerations
+@@ -220,6 +221,7 @@ libxl_vga_interface_type = Enumeration("
+     (2, "STD"),
+     (3, "NONE"),
+     (4, "QXL"),
++    (5, "XENGT"),
+     ], init_val = "LIBXL_VGA_INTERFACE_TYPE_UNKNOWN")
+ 
+ libxl_vendor_device = Enumeration("vendor_device", [
+@@ -576,6 +578,9 @@ libxl_domain_build_info = Struct("domain
+                                        ("hdtype",           libxl_hdtype),
+                                        ("nographic",        libxl_defbool),
+                                        ("vga",              libxl_vga_interface_info),
++                                       ("vgt_low_gm_sz",    VgtInt),
++                                       ("vgt_high_gm_sz",   VgtInt),
++                                       ("vgt_fence_sz",     VgtInt),
+                                        ("vnc",              libxl_vnc_info),
+                                        # keyboard layout, default is en-us keyboard
+                                        ("keymap",           string),
+diff -ruNp xen-4.12.1/tools/xl/xl_parse.c xen-4.12.1.new/tools/xl/xl_parse.c
+--- xen-4.12.1/tools/xl/xl_parse.c	2019-12-20 14:14:18.126409349 +0300
++++ xen-4.12.1.new/tools/xl/xl_parse.c	2019-12-20 19:08:24.052299535 +0300
+@@ -2567,6 +2567,8 @@ skip_usbdev:
+                 b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_NONE;
+             } else if (!strcmp(buf, "qxl")) {
+                 b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_QXL;
++            } else if (!strcmp(buf, "xengt")) {
++                b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_XENGT;
+             } else {
+                 fprintf(stderr, "Unknown vga \"%s\" specified\n", buf);
+                 exit(1);
+@@ -2582,6 +2584,13 @@ skip_usbdev:
+                 exit (1);
+         }
+ 
++        if (!xlu_cfg_get_long(config, "vgt_low_gm_sz", &l, 0))
++            b_info->u.hvm.vgt_low_gm_sz = l;
++        if (!xlu_cfg_get_long(config, "vgt_high_gm_sz", &l, 0))
++            b_info->u.hvm.vgt_high_gm_sz = l;
++        if (!xlu_cfg_get_long(config, "vgt_fence_sz", &l, 0))
++            b_info->u.hvm.vgt_fence_sz = l;
++
+         xlu_cfg_replace_string (config, "keymap", &b_info->u.hvm.keymap, 0);
+         xlu_cfg_get_defbool (config, "spice", &b_info->u.hvm.spice.enable, 0);
+         if (!xlu_cfg_get_long (config, "spiceport", &l, 0))
+diff -rup xen-4.12.1/tools/libxl/libxl_create.c xen-4.12.1.new/tools/libxl/libxl_create.c
+--- xen-4.12.1/tools/libxl/libxl_create.c	2019-12-20 14:14:18.176409934 +0300
++++ xen-4.12.1.new/tools/libxl/libxl_create.c	2019-12-23 19:06:29.960697493 +0300
+@@ -314,6 +314,7 @@ int libxl__domain_build_info_setdefault(
+                     return ERROR_INVAL;
+                 }
+                 break;
++            case LIBXL_VGA_INTERFACE_TYPE_XENGT:
+             case LIBXL_VGA_INTERFACE_TYPE_CIRRUS:
+             default:
+                 if (b_info->video_memkb == LIBXL_MEMKB_DEFAULT)

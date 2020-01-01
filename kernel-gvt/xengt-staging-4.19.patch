@@ -1,0 +1,4699 @@
+diff -uNrp -x '*.orig' -x '*.rej' a/arch/x86/include/asm/xen/hypercall.h b/arch/x86/include/asm/xen/hypercall.h
+--- a/arch/x86/include/asm/xen/hypercall.h	2019-10-17 23:45:44.000000000 +0300
++++ b/arch/x86/include/asm/xen/hypercall.h	2019-10-29 16:07:52.264554097 +0300
+@@ -416,6 +416,14 @@ HYPERVISOR_hvm_op(int op, void *arg)
+ }
+ 
+ static inline int
++HYPERVISOR_domctl(
++	struct xen_domctl *arg)
++{
++	return _hypercall1(int, domctl, arg);
++}
++
++
++static inline int
+ HYPERVISOR_tmem_op(
+ 	struct tmem_op *op)
+ {
+diff -uNrp -x '*.orig' -x '*.rej' a/arch/x86/include/asm/xen/hypervisor.h b/arch/x86/include/asm/xen/hypervisor.h
+--- a/arch/x86/include/asm/xen/hypervisor.h	2019-10-17 23:45:44.000000000 +0300
++++ b/arch/x86/include/asm/xen/hypervisor.h	2019-10-29 16:07:52.264554097 +0300
+@@ -48,7 +48,11 @@ extern bool xen_hvm_need_lapic(void);
+ 
+ static inline bool xen_x2apic_para_available(void)
+ {
++#ifdef CONFIG_XEN_PVHVM
+ 	return xen_hvm_need_lapic();
++#else
++	return false;
++#endif
+ }
+ #else
+ static inline bool xen_x2apic_para_available(void)
+diff -uNrp -x '*.orig' -x '*.rej' a/arch/x86/include/asm/xen/interface.h b/arch/x86/include/asm/xen/interface.h
+--- a/arch/x86/include/asm/xen/interface.h	2019-10-17 23:45:44.000000000 +0300
++++ b/arch/x86/include/asm/xen/interface.h	2019-10-29 16:07:52.264554097 +0300
+@@ -86,6 +86,7 @@ typedef long xen_long_t;
+ /* Guest handles for primitive C types. */
+ __DEFINE_GUEST_HANDLE(uchar, unsigned char);
+ __DEFINE_GUEST_HANDLE(uint,  unsigned int);
++__DEFINE_GUEST_HANDLE(ulong,  unsigned long);
+ DEFINE_GUEST_HANDLE(char);
+ DEFINE_GUEST_HANDLE(int);
+ DEFINE_GUEST_HANDLE(void);
+diff -uNrp -x '*.orig' -x '*.rej' a/arch/x86/xen/mmu.c b/arch/x86/xen/mmu.c
+--- a/arch/x86/xen/mmu.c	2019-10-17 23:45:44.000000000 +0300
++++ b/arch/x86/xen/mmu.c	2019-10-29 16:07:52.265554100 +0300
+@@ -2,6 +2,7 @@
+ #include <asm/xen/page.h>
+ #include <asm/xen/hypercall.h>
+ #include <xen/interface/memory.h>
++#include <linux/vmalloc.h>
+ 
+ #include "multicalls.h"
+ #include "mmu.h"
+@@ -235,3 +236,86 @@ int xen_unmap_domain_gfn_range(struct vm
+ 	return -EINVAL;
+ }
+ EXPORT_SYMBOL_GPL(xen_unmap_domain_gfn_range);
++
++/* Note: here 'mfn' is actually gfn!!! */
++struct vm_struct * xen_remap_domain_mfn_range_in_kernel(unsigned long mfn,
++		int nr, unsigned domid)
++{
++	struct vm_struct *area;
++	struct remap_data rmd;
++	struct mmu_update mmu_update[REMAP_BATCH_SIZE];
++	int batch;
++	unsigned long range, addr;
++	pgprot_t prot;
++	int err;
++
++	WARN_ON(in_interrupt() || irqs_disabled());
++
++	area = alloc_vm_area(nr << PAGE_SHIFT, NULL);
++	if (!area)
++		return NULL;
++
++	addr = (unsigned long)area->addr;
++
++	prot = __pgprot(pgprot_val(PAGE_KERNEL));
++	rmd.pfn = &mfn;
++	rmd.prot = prot;
++	rmd.contiguous = true;
++	rmd.no_translate = false;
++
++	while (nr) {
++		batch = min(REMAP_BATCH_SIZE, nr);
++		range = (unsigned long)batch << PAGE_SHIFT;
++
++		rmd.mmu_update = mmu_update;
++		err = apply_to_page_range(&init_mm, addr, range,
++					  remap_area_pfn_pte_fn, &rmd);
++		if (err || HYPERVISOR_mmu_update(mmu_update, batch, NULL, domid) < 0)
++			goto err;
++
++		nr -= batch;
++		addr += range;
++	}
++
++	xen_flush_tlb_all();
++	return area;
++err:
++	free_vm_area(area);
++	xen_flush_tlb_all();
++	return NULL;
++}
++EXPORT_SYMBOL_GPL(xen_remap_domain_mfn_range_in_kernel);
++
++void xen_unmap_domain_mfn_range_in_kernel(struct vm_struct *area, int nr,
++		unsigned domid)
++{
++	struct remap_data rmd;
++	struct mmu_update mmu_update;
++	unsigned long range, addr = (unsigned long)area->addr;
++#define INVALID_MFN (~0UL)
++	unsigned long invalid_mfn = INVALID_MFN;
++	int err;
++
++	WARN_ON(in_interrupt() || irqs_disabled());
++
++	rmd.prot = PAGE_NONE;
++	rmd.no_translate = false;
++
++	while (nr) {
++		range = (unsigned long)(1 << PAGE_SHIFT);
++
++		rmd.pfn = &invalid_mfn;
++		rmd.mmu_update = &mmu_update;
++		err = apply_to_page_range(&init_mm, addr, range,
++					  remap_area_pfn_pte_fn, &rmd);
++		BUG_ON(err);
++		BUG_ON(HYPERVISOR_mmu_update(&mmu_update, 1, NULL, domid) < 0);
++
++		nr--;
++		addr += range;
++	}
++
++	free_vm_area(area);
++	xen_flush_tlb_all();
++}
++EXPORT_SYMBOL_GPL(xen_unmap_domain_mfn_range_in_kernel);
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/Kconfig b/drivers/gpu/drm/i915/Kconfig
+--- a/drivers/gpu/drm/i915/Kconfig	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/Kconfig	2019-10-29 16:07:52.265554100 +0300
+@@ -128,6 +128,15 @@ config DRM_I915_GVT_KVMGT
+ 	  Choose this option if you want to enable KVMGT support for
+ 	  Intel GVT-g.
+ 
++config DRM_I915_GVT_XENGT
++	tristate "Enable XEN support for Intel GVT-g"
++	depends on DRM_I915_GVT
++	depends on XEN
++	default n
++	help
++	  Choose this option if you want to enable XENGT support for
++	  Intel GVT-g under XEN hypervisor environment.
++
+ menu "drm/i915 Debugging"
+ depends on DRM_I915
+ depends on EXPERT
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/Makefile b/drivers/gpu/drm/i915/gvt/Makefile
+--- a/drivers/gpu/drm/i915/gvt/Makefile	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/Makefile	2019-10-29 16:07:52.265554100 +0300
+@@ -3,8 +3,9 @@ GVT_DIR := gvt
+ GVT_SOURCE := gvt.o aperture_gm.o handlers.o vgpu.o trace_points.o firmware.o \
+ 	interrupt.o gtt.o cfg_space.o opregion.o mmio.o display.o edid.o \
+ 	execlist.o scheduler.o sched_policy.o mmio_context.o cmd_parser.o debugfs.o \
+-	fb_decoder.o dmabuf.o page_track.o
++	fb_decoder.o dmabuf.o page_track.o migrate.o
+ 
+ ccflags-y				+= -I$(src) -I$(src)/$(GVT_DIR)
+ i915-y					+= $(addprefix $(GVT_DIR)/, $(GVT_SOURCE))
+ obj-$(CONFIG_DRM_I915_GVT_KVMGT)	+= $(GVT_DIR)/kvmgt.o
++obj-$(CONFIG_DRM_I915_GVT_XENGT)	+= $(GVT_DIR)/xengt.o
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/aperture_gm.c b/drivers/gpu/drm/i915/gvt/aperture_gm.c
+--- a/drivers/gpu/drm/i915/gvt/aperture_gm.c	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/aperture_gm.c	2019-10-29 16:07:52.265554100 +0300
+@@ -144,8 +144,10 @@ void intel_vgpu_write_fence(struct intel
+ 	I915_WRITE(fence_reg_lo, 0);
+ 	POSTING_READ(fence_reg_lo);
+ 
+-	I915_WRITE(fence_reg_hi, upper_32_bits(value));
+-	I915_WRITE(fence_reg_lo, lower_32_bits(value));
++	I915_WRITE(fence_reg_hi,
++		intel_gvt_reg_g2h(vgpu, upper_32_bits(value), 0xFFFFF000));
++	I915_WRITE(fence_reg_lo,
++		intel_gvt_reg_g2h(vgpu, lower_32_bits(value), 0xFFFFF000));
+ 	POSTING_READ(fence_reg_lo);
+ }
+ 
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/cfg_space.c b/drivers/gpu/drm/i915/gvt/cfg_space.c
+--- a/drivers/gpu/drm/i915/gvt/cfg_space.c	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/cfg_space.c	2019-10-29 16:07:52.266554102 +0300
+@@ -33,6 +33,7 @@
+ 
+ #include "i915_drv.h"
+ #include "gvt.h"
++#include "i915_pvinfo.h"
+ 
+ enum {
+ 	INTEL_GVT_PCI_BAR_GTTMMIO = 0,
+@@ -125,7 +126,7 @@ static int map_aperture(struct intel_vgp
+ 	else
+ 		val = *(u32 *)(vgpu_cfg_space(vgpu) + PCI_BASE_ADDRESS_2);
+ 
+-	first_gfn = (val + vgpu_aperture_offset(vgpu)) >> PAGE_SHIFT;
++	first_gfn = (val + vgpu_guest_aperture_offset(vgpu)) >> PAGE_SHIFT;
+ 
+ 	ret = intel_gvt_hypervisor_map_gfn_to_mfn(vgpu, first_gfn,
+ 						  aperture_pa >> PAGE_SHIFT,
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/cmd_parser.c b/drivers/gpu/drm/i915/gvt/cmd_parser.c
+--- a/drivers/gpu/drm/i915/gvt/cmd_parser.c	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/cmd_parser.c	2019-10-29 16:07:52.266554102 +0300
+@@ -984,7 +984,8 @@ static int cmd_handler_lrr(struct parser
+ }
+ 
+ static inline int cmd_address_audit(struct parser_exec_state *s,
+-		unsigned long guest_gma, int op_size, bool index_mode);
++				    unsigned long guest_gma, int op_size,
++				    bool index_mode, int offset);
+ 
+ static int cmd_handler_lrm(struct parser_exec_state *s)
+ {
+@@ -1006,7 +1007,8 @@ static int cmd_handler_lrm(struct parser
+ 			gma = cmd_gma(s, i + 1);
+ 			if (gmadr_bytes == 8)
+ 				gma |= (cmd_gma_hi(s, i + 2)) << 32;
+-			ret |= cmd_address_audit(s, gma, sizeof(u32), false);
++			ret |= cmd_address_audit(s, gma, sizeof(u32),
++						 false, i + 1);
+ 			if (ret)
+ 				break;
+ 		}
+@@ -1030,7 +1032,8 @@ static int cmd_handler_srm(struct parser
+ 			gma = cmd_gma(s, i + 1);
+ 			if (gmadr_bytes == 8)
+ 				gma |= (cmd_gma_hi(s, i + 2)) << 32;
+-			ret |= cmd_address_audit(s, gma, sizeof(u32), false);
++			ret |= cmd_address_audit(s, gma, sizeof(u32),
++						 false, i + 1);
+ 			if (ret)
+ 				break;
+ 		}
+@@ -1102,7 +1105,7 @@ static int cmd_handler_pipe_control(stru
+ 				if (cmd_val(s, 1) & (1 << 21))
+ 					index_mode = true;
+ 				ret |= cmd_address_audit(s, gma, sizeof(u64),
+-						index_mode);
++						index_mode, 2);
+ 			}
+ 		}
+ 	}
+@@ -1432,10 +1435,13 @@ static unsigned long get_gma_bb_from_cmd
+ }
+ 
+ static inline int cmd_address_audit(struct parser_exec_state *s,
+-		unsigned long guest_gma, int op_size, bool index_mode)
++				    unsigned long guest_gma, int op_size,
++				    bool index_mode, int offset)
+ {
+ 	struct intel_vgpu *vgpu = s->vgpu;
+ 	u32 max_surface_size = vgpu->gvt->device_info.max_surface_size;
++	int gmadr_bytes = vgpu->gvt->device_info.gmadr_bytes_in_cmd;
++	u64 host_gma;
+ 	int i;
+ 	int ret;
+ 
+@@ -1453,6 +1459,14 @@ static inline int cmd_address_audit(stru
+ 	} else if (!intel_gvt_ggtt_validate_range(vgpu, guest_gma, op_size)) {
+ 		ret = -EFAULT;
+ 		goto err;
++	} else
++		intel_gvt_ggtt_gmadr_g2h(vgpu, guest_gma, &host_gma);
++
++	if (offset > 0) {
++		patch_value(s, cmd_ptr(s, offset), host_gma & GENMASK(31, 2));
++		if (gmadr_bytes == 8)
++			patch_value(s, cmd_ptr(s, offset + 1),
++				(host_gma >> 32) & GENMASK(15, 0));
+ 	}
+ 
+ 	return 0;
+@@ -1497,7 +1511,7 @@ static int cmd_handler_mi_store_data_imm
+ 		gma = (gma_high << 32) | gma_low;
+ 		core_id = (cmd_val(s, 1) & (1 << 0)) ? 1 : 0;
+ 	}
+-	ret = cmd_address_audit(s, gma + op_size * core_id, op_size, false);
++	ret = cmd_address_audit(s, gma + op_size * core_id, op_size, false, 1);
+ 	return ret;
+ }
+ 
+@@ -1541,7 +1555,7 @@ static int cmd_handler_mi_op_2f(struct p
+ 		gma_high = cmd_val(s, 2) & GENMASK(15, 0);
+ 		gma = (gma_high << 32) | gma;
+ 	}
+-	ret = cmd_address_audit(s, gma, op_size, false);
++	ret = cmd_address_audit(s, gma, op_size, false, 1);
+ 	return ret;
+ }
+ 
+@@ -1581,7 +1595,8 @@ static int cmd_handler_mi_flush_dw(struc
+ 		/* Store Data Index */
+ 		if (cmd_val(s, 0) & (1 << 21))
+ 			index_mode = true;
+-		ret = cmd_address_audit(s, gma, sizeof(u64), index_mode);
++		ret = cmd_address_audit(s, (gma | (1 << 2)),
++					sizeof(u64), index_mode, 1);
+ 	}
+ 	/* Check notify bit */
+ 	if ((cmd_val(s, 0) & (1 << 8)))
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/dmabuf.c b/drivers/gpu/drm/i915/gvt/dmabuf.c
+--- a/drivers/gpu/drm/i915/gvt/dmabuf.c	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/dmabuf.c	2019-10-29 16:07:52.266554102 +0300
+@@ -293,6 +293,9 @@ static int vgpu_get_plane_info(struct dr
+ 		return -EFAULT;
+ 	}
+ 
++	/* Apply g2h adjust to buffer start gma for display */
++	intel_gvt_ggtt_gmadr_g2h(vgpu, info->start, &info->start);
++
+ 	return 0;
+ }
+ 
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/execlist.c b/drivers/gpu/drm/i915/gvt/execlist.c
+--- a/drivers/gpu/drm/i915/gvt/execlist.c	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/execlist.c	2019-10-29 16:07:52.267554104 +0300
+@@ -437,7 +437,7 @@ out:
+ 	return ret;
+ }
+ 
+-static int submit_context(struct intel_vgpu *vgpu, int ring_id,
++int submit_context(struct intel_vgpu *vgpu, int ring_id,
+ 		struct execlist_ctx_descriptor_format *desc,
+ 		bool emulate_schedule_in)
+ {
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gtt.c b/drivers/gpu/drm/i915/gvt/gtt.c
+--- a/drivers/gpu/drm/i915/gvt/gtt.c	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/gtt.c	2019-10-29 16:14:20.070447996 +0300
+@@ -33,6 +33,8 @@
+  *
+  */
+ 
++#include <linux/types.h>
++#include <xen/xen.h>
+ #include "i915_drv.h"
+ #include "gvt.h"
+ #include "i915_pvinfo.h"
+@@ -65,16 +67,15 @@ bool intel_gvt_ggtt_validate_range(struc
+ /* translate a guest gmadr to host gmadr */
+ int intel_gvt_ggtt_gmadr_g2h(struct intel_vgpu *vgpu, u64 g_addr, u64 *h_addr)
+ {
+-	if (WARN(!vgpu_gmadr_is_valid(vgpu, g_addr),
+-		 "invalid guest gmadr %llx\n", g_addr))
++	if (!vgpu_gmadr_is_valid(vgpu, g_addr))
+ 		return -EACCES;
+ 
+ 	if (vgpu_gmadr_is_aperture(vgpu, g_addr))
+ 		*h_addr = vgpu_aperture_gmadr_base(vgpu)
+-			  + (g_addr - vgpu_aperture_offset(vgpu));
++			  + (g_addr - vgpu_guest_aperture_gmadr_base(vgpu));
+ 	else
+ 		*h_addr = vgpu_hidden_gmadr_base(vgpu)
+-			  + (g_addr - vgpu_hidden_offset(vgpu));
++			  + (g_addr - vgpu_guest_hidden_gmadr_base(vgpu));
+ 	return 0;
+ }
+ 
+@@ -86,10 +87,10 @@ int intel_gvt_ggtt_gmadr_h2g(struct inte
+ 		return -EACCES;
+ 
+ 	if (gvt_gmadr_is_aperture(vgpu->gvt, h_addr))
+-		*g_addr = vgpu_aperture_gmadr_base(vgpu)
++		*g_addr = vgpu_guest_aperture_gmadr_base(vgpu)
+ 			+ (h_addr - gvt_aperture_gmadr_base(vgpu->gvt));
+ 	else
+-		*g_addr = vgpu_hidden_gmadr_base(vgpu)
++		*g_addr = vgpu_guest_hidden_gmadr_base(vgpu)
+ 			+ (h_addr - gvt_hidden_gmadr_base(vgpu->gvt));
+ 	return 0;
+ }
+@@ -590,7 +591,7 @@ static inline void ppgtt_set_shadow_root
+ 	_ppgtt_set_root_entry(mm, entry, index, false);
+ }
+ 
+-static void ggtt_get_guest_entry(struct intel_vgpu_mm *mm,
++void ggtt_get_guest_entry(struct intel_vgpu_mm *mm,
+ 		struct intel_gvt_gtt_entry *entry, unsigned long index)
+ {
+ 	struct intel_gvt_gtt_pte_ops *pte_ops = mm->vgpu->gvt->gtt.pte_ops;
+@@ -1688,6 +1689,10 @@ static int ppgtt_handle_guest_write_page
+ 
+ 	index = (pa & (PAGE_SIZE - 1)) >> info->gtt_entry_size_shift;
+ 
++        if (xen_initial_domain())
++               /* Set guest ppgtt entry.Optional for KVMGT,but MUST for XENGT*/
++               intel_gvt_hypervisor_write_gpa(vgpu, pa, p_data, bytes);
++
+ 	ppgtt_get_guest_entry(spt, &we, index);
+ 
+ 	/*
+@@ -2160,7 +2165,8 @@ static int emulate_ggtt_mmio_write(struc
+ 	struct intel_vgpu_mm *ggtt_mm = vgpu->gtt.ggtt_mm;
+ 	struct intel_gvt_gtt_pte_ops *ops = gvt->gtt.pte_ops;
+ 	unsigned long g_gtt_index = off >> info->gtt_entry_size_shift;
+-	unsigned long gma, gfn;
++	unsigned long gfn;
++        unsigned long h_gtt_index;
+ 	struct intel_gvt_gtt_entry e = {.val64 = 0, .type = GTT_TYPE_GGTT_PTE};
+ 	struct intel_gvt_gtt_entry m = {.val64 = 0, .type = GTT_TYPE_GGTT_PTE};
+ 	dma_addr_t dma_addr;
+@@ -2169,10 +2175,8 @@ static int emulate_ggtt_mmio_write(struc
+ 	if (bytes != 4 && bytes != 8)
+ 		return -EINVAL;
+ 
+-	gma = g_gtt_index << I915_GTT_PAGE_SHIFT;
+-
+ 	/* the VM may configure the whole GM space when ballooning is used */
+-	if (!vgpu_gmadr_is_valid(vgpu, gma))
++	if (intel_gvt_ggtt_index_g2h(vgpu, g_gtt_index, &h_gtt_index))
+ 		return 0;
+ 
+ 	ggtt_get_guest_entry(ggtt_mm, &e, g_gtt_index);
+@@ -2268,7 +2272,7 @@ static int emulate_ggtt_mmio_write(struc
+ 	}
+ 
+ out:
+-	ggtt_set_host_entry(ggtt_mm, &m, g_gtt_index);
++	ggtt_set_host_entry(ggtt_mm, &m, h_gtt_index);
+ 	ggtt_invalidate(gvt->dev_priv);
+ 	ggtt_set_guest_entry(ggtt_mm, &e, g_gtt_index);
+ 	return 0;
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gtt.h b/drivers/gpu/drm/i915/gvt/gtt.h
+--- a/drivers/gpu/drm/i915/gvt/gtt.h	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/gtt.h	2019-10-29 16:07:52.267554104 +0300
+@@ -265,6 +265,9 @@ struct intel_vgpu_mm *intel_vgpu_get_ppg
+ 
+ int intel_vgpu_put_ppgtt_mm(struct intel_vgpu *vgpu, u64 pdps[]);
+ 
++void ggtt_get_guest_entry(struct intel_vgpu_mm *mm,
++		struct intel_gvt_gtt_entry *entry, unsigned long index);
++
+ int intel_vgpu_emulate_ggtt_mmio_read(struct intel_vgpu *vgpu,
+ 	unsigned int off, void *p_data, unsigned int bytes);
+ 
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gvt.c b/drivers/gpu/drm/i915/gvt/gvt.c
+--- a/drivers/gpu/drm/i915/gvt/gvt.c	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/gvt.c	2019-10-29 16:07:52.267554104 +0300
+@@ -185,6 +185,7 @@ static const struct intel_gvt_ops intel_
+ 	.vgpu_query_plane = intel_vgpu_query_plane,
+ 	.vgpu_get_dmabuf = intel_vgpu_get_dmabuf,
+ 	.write_protect_handler = intel_vgpu_page_track_handler,
++	.vgpu_save_restore = intel_gvt_save_restore,
+ };
+ 
+ /**
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gvt.h b/drivers/gpu/drm/i915/gvt/gvt.h
+--- a/drivers/gpu/drm/i915/gvt/gvt.h	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/gvt.h	2019-10-29 16:07:52.268554107 +0300
+@@ -46,6 +46,7 @@
+ #include "sched_policy.h"
+ #include "mmio_context.h"
+ #include "cmd_parser.h"
++#include "migrate.h"
+ #include "fb_decoder.h"
+ #include "dmabuf.h"
+ #include "page_track.h"
+@@ -198,6 +199,7 @@ struct intel_vgpu {
+ 	u32 hws_pga[I915_NUM_ENGINES];
+ 
+ 	struct dentry *debugfs;
++	unsigned long low_mem_max_gpfn;
+ 
+ #if IS_ENABLED(CONFIG_DRM_I915_GVT_KVMGT)
+ 	struct {
+@@ -420,6 +422,20 @@ int intel_gvt_load_firmware(struct intel
+ #define vgpu_fence_base(vgpu) (vgpu->fence.base)
+ #define vgpu_fence_sz(vgpu) (vgpu->fence.size)
+ 
++/* Aperture/GM space definitions for vGPU Guest view point */
++#define vgpu_guest_aperture_offset(vgpu) \
++	vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.mappable_gmadr.base))
++#define vgpu_guest_hidden_offset(vgpu)	\
++	vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.nonmappable_gmadr.base))
++
++#define vgpu_guest_aperture_gmadr_base(vgpu) (vgpu_guest_aperture_offset(vgpu))
++#define vgpu_guest_aperture_gmadr_end(vgpu) \
++	(vgpu_guest_aperture_gmadr_base(vgpu) + vgpu_aperture_sz(vgpu) - 1)
++
++#define vgpu_guest_hidden_gmadr_base(vgpu) (vgpu_guest_hidden_offset(vgpu))
++#define vgpu_guest_hidden_gmadr_end(vgpu) \
++	(vgpu_guest_hidden_gmadr_base(vgpu) + vgpu_hidden_sz(vgpu) - 1)
++
+ struct intel_vgpu_creation_params {
+ 	__u64 handle;
+ 	__u64 low_gm_sz;  /* in MB */
+@@ -492,15 +508,17 @@ void intel_gvt_reset_vgpu_locked(struct
+ void intel_gvt_reset_vgpu(struct intel_vgpu *vgpu);
+ void intel_gvt_activate_vgpu(struct intel_vgpu *vgpu);
+ void intel_gvt_deactivate_vgpu(struct intel_vgpu *vgpu);
++int intel_gvt_save_restore(struct intel_vgpu *vgpu, char *buf, size_t count,
++			   void *base, uint64_t off, bool restore);
+ 
+ /* validating GM functions */
+ #define vgpu_gmadr_is_aperture(vgpu, gmadr) \
+-	((gmadr >= vgpu_aperture_gmadr_base(vgpu)) && \
+-	 (gmadr <= vgpu_aperture_gmadr_end(vgpu)))
++	((gmadr >= vgpu_guest_aperture_gmadr_base(vgpu)) && \
++	 (gmadr <= vgpu_guest_aperture_gmadr_end(vgpu)))
+ 
+ #define vgpu_gmadr_is_hidden(vgpu, gmadr) \
+-	((gmadr >= vgpu_hidden_gmadr_base(vgpu)) && \
+-	 (gmadr <= vgpu_hidden_gmadr_end(vgpu)))
++	((gmadr >= vgpu_guest_hidden_gmadr_base(vgpu)) && \
++	 (gmadr <= vgpu_guest_hidden_gmadr_end(vgpu)))
+ 
+ #define vgpu_gmadr_is_valid(vgpu, gmadr) \
+ 	 ((vgpu_gmadr_is_aperture(vgpu, gmadr) || \
+@@ -526,6 +544,20 @@ int intel_gvt_ggtt_index_g2h(struct inte
+ int intel_gvt_ggtt_h2g_index(struct intel_vgpu *vgpu, unsigned long h_index,
+ 			     unsigned long *g_index);
+ 
++/* apply guest to host gma conversion in GM registers setting */
++static inline u64 intel_gvt_reg_g2h(struct intel_vgpu *vgpu,
++		u32 addr, u32 mask)
++{
++	u64 gma;
++
++	if (addr) {
++		intel_gvt_ggtt_gmadr_g2h(vgpu,
++				addr & mask, &gma);
++		addr = gma | (addr & (~mask));
++	}
++	return addr;
++}
++
+ void intel_vgpu_init_cfg_space(struct intel_vgpu *vgpu,
+ 		bool primary);
+ void intel_vgpu_reset_cfg_space(struct intel_vgpu *vgpu);
+@@ -577,6 +609,8 @@ struct intel_gvt_ops {
+ 	int (*vgpu_get_dmabuf)(struct intel_vgpu *vgpu, unsigned int);
+ 	int (*write_protect_handler)(struct intel_vgpu *, u64, void *,
+ 				     unsigned int);
++	int  (*vgpu_save_restore)(struct intel_vgpu *, char *buf, size_t count,
++				  void *base, uint64_t off, bool restore);
+ };
+ 
+ 
+@@ -690,6 +724,9 @@ int intel_gvt_debugfs_add_vgpu(struct in
+ void intel_gvt_debugfs_remove_vgpu(struct intel_vgpu *vgpu);
+ int intel_gvt_debugfs_init(struct intel_gvt *gvt);
+ void intel_gvt_debugfs_clean(struct intel_gvt *gvt);
++int submit_context(struct intel_vgpu *vgpu, int ring_id,
++		struct execlist_ctx_descriptor_format *desc,
++		bool emulate_schedule_in);
+ 
+ 
+ #include "trace.h"
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/migrate.c b/drivers/gpu/drm/i915/gvt/migrate.c
+--- a/drivers/gpu/drm/i915/gvt/migrate.c	1970-01-01 03:00:00.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/migrate.c	2019-10-29 16:07:52.269554109 +0300
+@@ -0,0 +1,961 @@
++/*
++ * Copyright(c) 2011-2016 Intel Corporation. All rights reserved.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the "Software"),
++ * to deal in the Software without restriction, including without limitation
++ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
++ * and/or sell copies of the Software, and to permit persons to whom the
++ * Software is furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice (including the next
++ * paragraph) shall be included in all copies or substantial portions of the
++ * Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
++ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++ * SOFTWARE.
++ *
++ * Authors:
++ *    Yulei Zhang <yulei.zhang@intel.com>
++ *    Xiao Zheng <xiao.zheng@intel.com>
++ */
++
++#include "i915_drv.h"
++#include "gvt.h"
++#include "i915_pvinfo.h"
++
++#define INV (-1)
++#define RULES_NUM(x) (sizeof(x)/sizeof(gvt_migration_obj_t))
++#define FOR_EACH_OBJ(obj, rules) \
++	for (obj = rules; obj->region.type != GVT_MIGRATION_NONE; obj++)
++#define MIG_VREG_RESTORE(vgpu, off)					\
++	{								\
++		u32 data = vgpu_vreg(vgpu, (off));			\
++		u64 pa = intel_vgpu_mmio_offset_to_gpa(vgpu, off);	\
++		intel_vgpu_emulate_mmio_write(vgpu, pa, &data, 4);	\
++	}
++
++/* s - struct
++ * t - type of obj
++ * m - size of obj
++ * ops - operation override callback func
++ */
++#define MIGRATION_UNIT(_s, _t, _m, _ops) {		\
++.img		= NULL,					\
++.region.type	= _t,					\
++.region.size	= _m,					\
++.ops		= &(_ops),				\
++.name		= "["#_s":"#_t"]\0"			\
++}
++
++#define MIGRATION_END {		\
++	NULL, NULL, 0,		\
++	{GVT_MIGRATION_NONE, 0},\
++	NULL,	\
++	NULL	\
++}
++
++static DEFINE_MUTEX(gvt_migration);
++static int image_header_load(const struct gvt_migration_obj_t *obj, u32 size);
++static int image_header_save(const struct gvt_migration_obj_t *obj);
++static int vreg_load(const struct gvt_migration_obj_t *obj, u32 size);
++static int vreg_save(const struct gvt_migration_obj_t *obj);
++static int sreg_load(const struct gvt_migration_obj_t *obj, u32 size);
++static int sreg_save(const struct gvt_migration_obj_t *obj);
++static int vcfg_space_load(const struct gvt_migration_obj_t *obj, u32 size);
++static int vcfg_space_save(const struct gvt_migration_obj_t *obj);
++static int vggtt_load(const struct gvt_migration_obj_t *obj, u32 size);
++static int vggtt_save(const struct gvt_migration_obj_t *obj);
++static int workload_load(const struct gvt_migration_obj_t *obj, u32 size);
++static int workload_save(const struct gvt_migration_obj_t *obj);
++static int ppgtt_load(const struct gvt_migration_obj_t *obj, u32 size);
++static int ppgtt_save(const struct gvt_migration_obj_t *obj);
++static int opregion_load(const struct gvt_migration_obj_t *obj, u32 size);
++static int opregion_save(const struct gvt_migration_obj_t *obj);
++static int execlist_load(const struct gvt_migration_obj_t *obj, u32 size);
++static int execlist_save(const struct gvt_migration_obj_t *obj);
++
++/***********************************************
++ * Internal Static Functions
++ ***********************************************/
++struct gvt_migration_operation_t vReg_ops = {
++	.pre_copy = NULL,
++	.pre_save = vreg_save,
++	.pre_load = vreg_load,
++	.post_load = NULL,
++};
++
++struct gvt_migration_operation_t sReg_ops = {
++	.pre_copy = NULL,
++	.pre_save = sreg_save,
++	.pre_load = sreg_load,
++	.post_load = NULL,
++};
++
++struct gvt_migration_operation_t vcfg_space_ops = {
++	.pre_copy = NULL,
++	.pre_save = vcfg_space_save,
++	.pre_load = vcfg_space_load,
++	.post_load = NULL,
++};
++
++struct gvt_migration_operation_t vgtt_info_ops = {
++	.pre_copy = NULL,
++	.pre_save = vggtt_save,
++	.pre_load = vggtt_load,
++	.post_load = NULL,
++};
++
++struct gvt_migration_operation_t image_header_ops = {
++	.pre_copy = NULL,
++	.pre_save = image_header_save,
++	.pre_load = image_header_load,
++	.post_load = NULL,
++};
++
++struct gvt_migration_operation_t workload_ops = {
++	.pre_copy = NULL,
++	.pre_save = workload_save,
++	.pre_load = workload_load,
++	.post_load = NULL,
++};
++
++struct gvt_migration_operation_t ppgtt_ops = {
++	.pre_copy = NULL,
++	.pre_save = ppgtt_save,
++	.pre_load = ppgtt_load,
++	.post_load = NULL,
++};
++
++struct gvt_migration_operation_t opregion_ops = {
++	.pre_copy = NULL,
++	.pre_save = opregion_save,
++	.pre_load = opregion_load,
++	.post_load = NULL,
++};
++
++struct gvt_migration_operation_t execlist_ops = {
++	.pre_copy = NULL,
++	.pre_save = execlist_save,
++	.pre_load = execlist_load,
++	.post_load = NULL,
++};
++
++/* gvt_device_objs[] are list of gvt_migration_obj_t objs
++ * Each obj has its operation method to save to qemu image
++ * and restore from qemu image during the migration.
++ *
++ * for each saved bject, it will have a region header
++ * struct gvt_region_t {
++ *   region_type;
++ *   region_size;
++ * }
++ *__________________  _________________   __________________
++ *|x64 (Source)    |  |image region    |  |x64 (Target)    |
++ *|________________|  |________________|  |________________|
++ *|    Region A    |  |   Region A     |  |   Region A     |
++ *|    Header      |  |   offset=0     |  | allocate a page|
++ *|    content     |  |                |  | copy data here |
++ *|----------------|  |     ...        |  |----------------|
++ *|    Region B    |  |     ...        |  |   Region B     |
++ *|    Header      |  |----------------|  |                |
++ *|    content        |   Region B     |  |                |
++ *|----------------|  |   offset=4096  |  |----------------|
++ *                    |                |
++ *                    |----------------|
++ *
++ * On the target side, it will parser the incoming data copy
++ * from Qemu image, and apply difference restore handlers depends
++ * on the region type.
++ */
++static struct gvt_migration_obj_t gvt_device_objs[] = {
++	MIGRATION_UNIT(struct intel_vgpu,
++			GVT_MIGRATION_HEAD,
++			sizeof(struct gvt_image_header_t),
++			image_header_ops),
++	MIGRATION_UNIT(struct intel_vgpu,
++			GVT_MIGRATION_CFG_SPACE,
++			PCI_CFG_SPACE_EXP_SIZE,
++			vcfg_space_ops),
++	MIGRATION_UNIT(struct intel_vgpu,
++			GVT_MIGRATION_SREG,
++			GVT_MMIO_SIZE, sReg_ops),
++	MIGRATION_UNIT(struct intel_vgpu,
++			GVT_MIGRATION_VREG,
++			GVT_MMIO_SIZE, vReg_ops),
++	MIGRATION_UNIT(struct intel_vgpu,
++			GVT_MIGRATION_GTT,
++			0, vgtt_info_ops),
++	MIGRATION_UNIT(struct intel_vgpu,
++			GVT_MIGRATION_PPGTT,
++			0, ppgtt_ops),
++	MIGRATION_UNIT(struct intel_vgpu,
++			GVT_MIGRATION_WORKLOAD,
++			0, workload_ops),
++	MIGRATION_UNIT(struct intel_vgpu,
++			GVT_MIGRATION_OPREGION,
++			INTEL_GVT_OPREGION_SIZE, opregion_ops),
++	MIGRATION_UNIT(struct intel_vgpu,
++			GVT_MIGRATION_EXECLIST,
++			0, execlist_ops),
++	MIGRATION_END,
++};
++
++static inline void
++update_image_region_start_pos(struct gvt_migration_obj_t *obj, int pos)
++{
++	obj->offset = pos;
++}
++
++static inline void
++update_image_region_base(struct gvt_migration_obj_t *obj, void *base)
++{
++	obj->img = base;
++}
++
++static inline void
++update_status_region_base(struct gvt_migration_obj_t *obj, void *base)
++{
++	obj->vgpu = base;
++}
++
++static inline struct gvt_migration_obj_t *
++find_migration_obj(enum gvt_migration_type_t type)
++{
++	struct gvt_migration_obj_t *obj;
++
++	for (obj = gvt_device_objs;
++		obj->region.type != GVT_MIGRATION_NONE; obj++)
++		if (obj->region.type == type)
++			return obj;
++	return NULL;
++}
++
++static int image_header_save(const struct gvt_migration_obj_t *obj)
++{
++	struct gvt_region_t region;
++	struct gvt_image_header_t header;
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++
++	region.type = GVT_MIGRATION_HEAD;
++	region.size = sizeof(struct gvt_image_header_t);
++	memcpy(obj->img, &region, sizeof(struct gvt_region_t));
++
++	header.version = GVT_MIGRATION_VERSION;
++	header.data_size = obj->offset;
++	header.crc_check = 0; /* CRC check skipped for now*/
++
++	if (intel_gvt_host.hypervisor_type == INTEL_GVT_HYPERVISOR_XEN) {
++		header.global_data[0] = vgpu->low_mem_max_gpfn;
++	}
++
++	memcpy(obj->img + sizeof(struct gvt_region_t), &header,
++			sizeof(struct gvt_image_header_t));
++
++	return sizeof(struct gvt_region_t) + sizeof(struct gvt_image_header_t);
++}
++
++static int image_header_load(const struct gvt_migration_obj_t *obj, u32 size)
++{
++	struct gvt_image_header_t header;
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++
++	if (unlikely(size != sizeof(struct gvt_image_header_t))) {
++		gvt_err("migration obj size isn't match between target and image!"
++		" memsize=%d imgsize=%d\n",
++		obj->region.size,
++		size);
++		return INV;
++	}
++
++	memcpy(&header, obj->img + obj->offset,
++		sizeof(struct gvt_image_header_t));
++
++	if (intel_gvt_host.hypervisor_type == INTEL_GVT_HYPERVISOR_XEN) {
++		vgpu->low_mem_max_gpfn = header.global_data[0];
++	}
++
++	return header.data_size;
++}
++
++static int vcfg_space_save(const struct gvt_migration_obj_t *obj)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	int n_transfer = INV;
++	void *src = vgpu->cfg_space.virtual_cfg_space;
++	void *des = obj->img + obj->offset;
++
++	memcpy(des, &obj->region, sizeof(struct gvt_region_t));
++
++	des += sizeof(struct gvt_region_t);
++	n_transfer = obj->region.size;
++
++	memcpy(des, src, n_transfer);
++	return sizeof(struct gvt_region_t) + n_transfer;
++}
++
++static int vcfg_space_load(const struct gvt_migration_obj_t *obj, u32 size)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	char *dest = vgpu->cfg_space.virtual_cfg_space;
++	int n_transfer = INV;
++
++	if (unlikely(size != obj->region.size)) {
++		gvt_err("migration obj size isn't match between target and image!"
++		" memsize=%d imgsize=%d\n",
++		obj->region.size,
++		size);
++		return n_transfer;
++	} else {
++		n_transfer = obj->region.size;
++		memcpy(dest, obj->img + obj->offset, n_transfer);
++	}
++
++	if (intel_gvt_host.hypervisor_type == INTEL_GVT_HYPERVISOR_XEN) {
++#define MIG_CFG_SPACE_WRITE(off) {					\
++	u32 data;							\
++	data = *((u32 *)(dest + (off)));				\
++	intel_vgpu_emulate_cfg_write(vgpu, (off), &data, sizeof(data));	\
++	}
++
++#define MIG_CFG_SPACE_WRITE_BAR(bar) {					\
++	u32 data = 0x500;						\
++	vgpu_cfg_space(vgpu)[PCI_COMMAND] = 0;				\
++	intel_vgpu_emulate_cfg_write(vgpu, PCI_COMMAND, &data, 2);	\
++	data = *((u32 *)(dest + (bar)));				\
++	intel_vgpu_emulate_cfg_write(vgpu, (bar), &data, sizeof(data));	\
++	data = *((u32 *)(dest + (bar)+4));				\
++	intel_vgpu_emulate_cfg_write(vgpu, (bar)+4, &data, sizeof(data));\
++	data = 0x503;							\
++	intel_vgpu_emulate_cfg_write(vgpu, PCI_COMMAND, &data, 2);	\
++	}
++
++		/* reconfig bar0,1,2 with source VM's base address.
++		 * TargetVM and SourceVM must have same bar base.
++		 */
++		MIG_CFG_SPACE_WRITE_BAR(PCI_BASE_ADDRESS_0);
++		MIG_CFG_SPACE_WRITE_BAR(PCI_BASE_ADDRESS_2);
++		MIG_CFG_SPACE_WRITE_BAR(PCI_BASE_ADDRESS_4);
++
++		/* restore OpRegion */
++		MIG_CFG_SPACE_WRITE(INTEL_GVT_PCI_OPREGION);
++		MIG_CFG_SPACE_WRITE(INTEL_GVT_PCI_SWSCI);
++	}
++	return n_transfer;
++}
++
++static int sreg_save(const struct gvt_migration_obj_t *obj)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	int n_transfer = INV;
++	void *src = vgpu->mmio.sreg;
++	void *des = obj->img + obj->offset;
++
++	memcpy(des, &obj->region, sizeof(struct gvt_region_t));
++
++	des += sizeof(struct gvt_region_t);
++	n_transfer = obj->region.size;
++
++	memcpy(des, src, n_transfer);
++	return sizeof(struct gvt_region_t) + n_transfer;
++}
++
++static int sreg_load(const struct gvt_migration_obj_t *obj, u32 size)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	void *dest = vgpu->mmio.sreg;
++	int n_transfer = INV;
++
++	if (unlikely(size != obj->region.size)) {
++		gvt_err("migration obj size isn't match between target and image!"
++		" memsize=%d imgsize=%d\n",
++		obj->region.size,
++		size);
++		return n_transfer;
++	} else {
++		n_transfer = obj->region.size;
++		memcpy(dest, obj->img + obj->offset, n_transfer);
++	}
++
++	return n_transfer;
++}
++
++static int opregion_save(const struct gvt_migration_obj_t *obj)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	int n_transfer = INV;
++	void *src = vgpu->opregion.va;
++	void *des = obj->img + obj->offset;
++
++	memcpy(des, &obj->region, sizeof(struct gvt_region_t));
++
++	des += sizeof(struct gvt_region_t);
++	n_transfer = obj->region.size;
++
++	memcpy(des, src, n_transfer);
++	return sizeof(struct gvt_region_t) + n_transfer;
++}
++
++static int opregion_load(const struct gvt_migration_obj_t *obj, u32 size)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	int n_transfer = INV;
++
++	if (unlikely(size != obj->region.size)) {
++		gvt_err("migration object size is not match between target \
++				and image!!! memsize=%d imgsize=%d\n",
++		obj->region.size,
++		size);
++		return n_transfer;
++	} else {
++		if (vgpu_opregion(vgpu)->va == NULL) {
++			vgpu_opregion(vgpu)->va = (void *)__get_free_pages(GFP_KERNEL |
++				__GFP_ZERO,
++				get_order(INTEL_GVT_OPREGION_SIZE));
++		}
++
++		n_transfer = obj->region.size;
++		memcpy(vgpu_opregion(vgpu)->va, obj->img + obj->offset, n_transfer);
++	}
++
++	return n_transfer;
++}
++
++static int ppgtt_save(const struct gvt_migration_obj_t *obj)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	struct list_head *pos;
++	struct intel_vgpu_mm *mm;
++	struct gvt_ppgtt_entry_t entry;
++	struct gvt_region_t region;
++	int num = 0;
++	u32 sz = sizeof(struct gvt_ppgtt_entry_t);
++	void *des = obj->img + obj->offset;
++
++	list_for_each(pos, &vgpu->gtt.ppgtt_mm_list_head) {
++		mm = container_of(pos, struct intel_vgpu_mm, ppgtt_mm.list);
++		if (mm->type != INTEL_GVT_MM_PPGTT)
++			continue;
++
++		entry.page_table_level = mm->ppgtt_mm.root_entry_type;
++		memcpy(entry.pdp, mm->ppgtt_mm.guest_pdps, 32);
++
++		memcpy(des + sizeof(struct gvt_region_t) + (num * sz),
++			&entry, sz);
++		num++;
++	}
++
++	region.type = GVT_MIGRATION_PPGTT;
++	region.size = num * sz;
++	memcpy(des, &region, sizeof(struct gvt_region_t));
++
++	return sizeof(struct gvt_region_t) + region.size;
++}
++
++static int ppgtt_load(const struct gvt_migration_obj_t *obj, u32 size)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	int n_transfer = INV;
++	struct gvt_ppgtt_entry_t entry;
++	struct intel_vgpu_mm *mm;
++	void *src = obj->img + obj->offset;
++	int i;
++	u32 sz = sizeof(struct gvt_ppgtt_entry_t);
++
++	if (size == 0)
++		return size;
++
++	if (unlikely(size % sz) != 0) {
++		gvt_err("migration obj size isn't match between target and image!"
++		" memsize=%d imgsize=%d\n",
++		obj->region.size,
++		size);
++		return n_transfer;
++	}
++
++	for (i = 0; i < size / sz; i++) {
++		memcpy(&entry, src + (i * sz), sz);
++		mm = intel_vgpu_create_ppgtt_mm(vgpu, entry.page_table_level,
++						entry.pdp);
++		if (IS_ERR(mm)) {
++			gvt_vgpu_err("fail to create mm object.\n");
++			return n_transfer;
++		}
++	}
++
++	n_transfer = size;
++
++	return n_transfer;
++}
++
++static int vreg_save(const struct gvt_migration_obj_t *obj)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	int n_transfer = INV;
++	void *src = vgpu->mmio.vreg;
++	void *des = obj->img + obj->offset;
++
++	memcpy(des, &obj->region, sizeof(struct gvt_region_t));
++
++	des += sizeof(struct gvt_region_t);
++	n_transfer = obj->region.size;
++
++	memcpy(des, src, n_transfer);
++	return sizeof(struct gvt_region_t) + n_transfer;
++}
++
++static int vreg_load(const struct gvt_migration_obj_t *obj, u32 size)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	void *dest = vgpu->mmio.vreg;
++	int n_transfer = INV;
++	struct drm_i915_private *dev_priv = vgpu->gvt->dev_priv;
++	struct intel_engine_cs *engine;
++	enum intel_engine_id id;
++	enum pipe pipe;
++
++	if (unlikely(size != obj->region.size)) {
++		gvt_err("migration obj size isn't match between target and image!"
++		" memsize=%d imgsize=%d\n",
++		obj->region.size,
++		size);
++		return n_transfer;
++	} else {
++		n_transfer = obj->region.size;
++		memcpy(dest, obj->img + obj->offset, n_transfer);
++	}
++
++	//restore vblank emulation
++	for (pipe = PIPE_A; pipe < I915_MAX_PIPES; ++pipe)
++		MIG_VREG_RESTORE(vgpu, i915_mmio_reg_offset(PIPECONF(pipe)));
++
++	//restore ring mode register for execlist init
++	for_each_engine(engine, dev_priv, id)
++		MIG_VREG_RESTORE(vgpu, i915_mmio_reg_offset(RING_MODE_GEN7(engine)));
++
++	memcpy(dest, obj->img + obj->offset, n_transfer);
++	return n_transfer;
++}
++
++static int execlist_save(const struct gvt_migration_obj_t *obj)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	struct drm_i915_private *dev_priv = vgpu->gvt->dev_priv;
++	struct gvt_region_t region;
++	struct intel_engine_cs *engine;
++	u32 sz = sizeof(struct intel_vgpu_elsp_dwords);
++	unsigned int i;
++
++	void *des = obj->img + obj->offset;
++
++	for_each_engine(engine, dev_priv, i) {
++		memcpy(des + sizeof(struct gvt_region_t) + (i * sz),
++			&vgpu->submission.execlist[engine->id].elsp_dwords, sz);
++	}
++
++	region.type = GVT_MIGRATION_EXECLIST;
++	region.size = i * sz;
++	memcpy(des, &region, sizeof(struct gvt_region_t));
++	return sizeof(struct gvt_region_t) + region.size;
++}
++
++static int execlist_load(const struct gvt_migration_obj_t *obj, u32 size)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	struct drm_i915_private *dev_priv = vgpu->gvt->dev_priv;
++	struct intel_engine_cs *engine;
++	u32 sz = sizeof(struct intel_vgpu_elsp_dwords);
++	void *src = obj->img + obj->offset;
++	int n_transfer = INV;
++	unsigned int i;
++
++	if (size == 0)
++		return size;
++
++	if (unlikely(size % sz) != 0) {
++		gvt_err("migration obj size isn't match between target and image!"
++		" memsize=%d imgsize=%d\n",
++		obj->region.size,
++		size);
++		return n_transfer;
++	}
++
++	for_each_engine(engine, dev_priv, i) {
++		memcpy(&vgpu->submission.execlist[engine->id].elsp_dwords,
++			src + (i * sz), sz);
++	}
++
++	n_transfer = size;
++
++	return n_transfer;
++}
++
++static int workload_save(const struct gvt_migration_obj_t *obj)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	struct drm_i915_private *dev_priv = vgpu->gvt->dev_priv;
++	struct gvt_region_t region;
++	struct intel_engine_cs *engine;
++	struct intel_vgpu_workload *pos, *n;
++	unsigned int i;
++	struct gvt_pending_workload_t workload;
++	void *des = obj->img + obj->offset;
++	unsigned int num = 0;
++	u32 sz = sizeof(struct gvt_pending_workload_t);
++
++	for_each_engine(engine, dev_priv, i) {
++		list_for_each_entry_safe(pos, n,
++			&vgpu->submission.workload_q_head[engine->id], list) {
++			workload.ring_id = pos->ring_id;
++			workload.ctx_desc = pos->ctx_desc;
++			workload.emulate_schedule_in = pos->emulate_schedule_in;
++			workload.elsp_dwords = pos->elsp_dwords;
++			list_del_init(&pos->list);
++			intel_vgpu_destroy_workload(pos);
++			memcpy(des + sizeof(struct gvt_region_t) + (num * sz),
++				&workload, sz);
++			num++;
++		}
++	}
++
++	region.type = GVT_MIGRATION_WORKLOAD;
++	region.size = num * sz;
++	memcpy(des, &region, sizeof(struct gvt_region_t));
++
++	return sizeof(struct gvt_region_t) + region.size;
++}
++
++static int workload_load(const struct gvt_migration_obj_t *obj, u32 size)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	int n_transfer = INV;
++	struct gvt_pending_workload_t workload;
++	void *src = obj->img + obj->offset;
++	u32 sz = sizeof(struct gvt_pending_workload_t);
++	int i;
++
++	if (size == 0)
++		return size;
++
++	if (unlikely(size % sz) != 0) {
++		gvt_err("migration obj size isn't match between target and image!"
++		" memsize=%d imgsize=%d\n",
++		obj->region.size,
++		size);
++		return n_transfer;
++	}
++	for (i = 0; i < size / sz; i++) {
++		memcpy(&workload, src + (i * sz), sz);
++		if (workload.emulate_schedule_in) {
++			vgpu->submission.execlist[workload.ring_id].elsp_dwords = workload.elsp_dwords;
++			vgpu->submission.execlist[workload.ring_id].elsp_dwords.index = 0;
++		}
++		submit_context(vgpu, workload.ring_id,
++			&workload.ctx_desc, workload.emulate_schedule_in);
++	}
++
++	n_transfer = size;
++
++	return n_transfer;
++}
++
++static int
++mig_ggtt_save_restore(struct intel_vgpu_mm *ggtt_mm,
++		void *data, u64 gm_offset,
++		u64 gm_sz,
++		bool save_to_image)
++{
++	struct intel_vgpu *vgpu = ggtt_mm->vgpu;
++	struct intel_gvt_gtt_gma_ops *gma_ops = vgpu->gvt->gtt.gma_ops;
++
++	void *ptable;
++	int sz;
++	int shift = vgpu->gvt->device_info.gtt_entry_size_shift;
++
++	ptable = ggtt_mm->ggtt_mm.virtual_ggtt +
++	    (gma_ops->gma_to_ggtt_pte_index(gm_offset) << shift);
++	sz = (gm_sz >> I915_GTT_PAGE_SHIFT) << shift;
++
++	if (save_to_image)
++		memcpy(data, ptable, sz);
++	else
++		memcpy(ptable, data, sz);
++
++	return sz;
++}
++
++static int vggtt_save(const struct gvt_migration_obj_t *obj)
++{
++	int ret = INV;
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	struct intel_vgpu_mm *ggtt_mm = vgpu->gtt.ggtt_mm;
++	void *des = obj->img + obj->offset;
++	struct gvt_region_t region;
++	int sz;
++
++	u64 aperture_offset = vgpu_guest_aperture_offset(vgpu);
++	u64 aperture_sz = vgpu_aperture_sz(vgpu);
++	u64 hidden_gm_offset = vgpu_guest_hidden_offset(vgpu);
++	u64 hidden_gm_sz = vgpu_hidden_sz(vgpu);
++
++	des += sizeof(struct gvt_region_t);
++
++	/*TODO:512MB GTT takes total 1024KB page table size, optimization here*/
++
++	gvt_dbg_core("Guest aperture=0x%llx (HW: 0x%llx),"
++		"Guest Hidden=0x%llx (HW:0x%llx)\n",
++		aperture_offset, vgpu_aperture_offset(vgpu),
++		hidden_gm_offset, vgpu_hidden_offset(vgpu));
++
++	/*TODO:to be fixed after removal of address ballooning */
++	ret = 0;
++
++	/* aperture */
++	sz = mig_ggtt_save_restore(ggtt_mm, des,
++		aperture_offset, aperture_sz, true);
++	des += sz;
++	ret += sz;
++
++	/* hidden gm */
++	sz = mig_ggtt_save_restore(ggtt_mm, des,
++		hidden_gm_offset, hidden_gm_sz, true);
++	des += sz;
++	ret += sz;
++
++	/* Save the total size of this session */
++	region.type = GVT_MIGRATION_GTT;
++	region.size = ret;
++	memcpy(obj->img + obj->offset, &region, sizeof(struct gvt_region_t));
++
++	ret += sizeof(struct gvt_region_t);
++
++	return ret;
++}
++
++static int vggtt_load(const struct gvt_migration_obj_t *obj, u32 size)
++{
++	int ret;
++	u32 ggtt_index;
++	void *src;
++	int sz;
++
++	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
++	struct intel_vgpu_mm *ggtt_mm = vgpu->gtt.ggtt_mm;
++
++	int shift = vgpu->gvt->device_info.gtt_entry_size_shift;
++
++	/* offset to bar1 beginning */
++	u64 dest_aperture_offset = vgpu_guest_aperture_offset(vgpu);
++	u64 aperture_sz = vgpu_aperture_sz(vgpu);
++	u64 dest_hidden_gm_offset = vgpu_guest_hidden_offset(vgpu);
++	u64 hidden_gm_sz = vgpu_hidden_sz(vgpu);
++
++	gvt_dbg_core("Guest aperture=0x%llx (HW: 0x%llx),"
++		"Guest Hidden=0x%llx (HW:0x%llx)\n",
++		dest_aperture_offset, vgpu_aperture_offset(vgpu),
++		dest_hidden_gm_offset, vgpu_hidden_offset(vgpu));
++
++	if ((size>>shift) !=
++			((aperture_sz + hidden_gm_sz) >> I915_GTT_PAGE_SHIFT)) {
++		gvt_err("ggtt restore failed due to page table size not match\n");
++		return INV;
++	}
++
++	ret = 0;
++	src = obj->img + obj->offset;
++
++	/* aperture */
++	sz = mig_ggtt_save_restore(ggtt_mm,
++		src, dest_aperture_offset, aperture_sz, false);
++	src += sz;
++	ret += sz;
++
++	/* hidden GM */
++	sz = mig_ggtt_save_restore(ggtt_mm, src,
++			dest_hidden_gm_offset, hidden_gm_sz, false);
++	ret += sz;
++
++	/* aperture/hidden GTT emulation from Source to Target */
++	for (ggtt_index = 0; 
++	     ggtt_index < (gvt_ggtt_gm_sz(vgpu->gvt) >> I915_GTT_PAGE_SHIFT);
++	     ggtt_index++) {
++
++		if (vgpu_gmadr_is_valid(vgpu, ggtt_index << I915_GTT_PAGE_SHIFT)) {
++			struct intel_gvt_gtt_pte_ops *ops =
++					vgpu->gvt->gtt.pte_ops;
++			struct intel_gvt_gtt_entry e;
++			u64 offset;
++			u64 pa;
++
++			/* TODO: hardcode to 64bit right now */
++			offset = vgpu->gvt->device_info.gtt_start_offset
++				+ (ggtt_index<<shift);
++
++			pa = intel_vgpu_mmio_offset_to_gpa(vgpu, offset);
++
++			/* read out virtual GTT entity and
++			 * trigger emulate write
++			 */
++			ggtt_get_guest_entry(ggtt_mm, &e, ggtt_index);
++			if (ops->test_present(&e)) {
++			/* same as gtt_emulate
++			 * _write(vgt, offset, &e.val64, 1<<shift);
++			 * Using vgt_emulate_write as to align with vReg load
++			 */
++				intel_vgpu_emulate_mmio_write(vgpu, pa,
++							&e.val64, 1<<shift);
++			}
++		}
++	}
++
++	return ret;
++}
++
++static int vgpu_save(const void *img)
++{
++	struct gvt_migration_obj_t *node;
++	int n_img_actual_saved = 0;
++
++	/* go by obj rules one by one */
++	FOR_EACH_OBJ(node, gvt_device_objs) {
++		int n_img = INV;
++
++		if ((node->region.type == GVT_MIGRATION_OPREGION) &&
++			(intel_gvt_host.hypervisor_type == INTEL_GVT_HYPERVISOR_KVM))
++			continue;
++
++		/* obj will copy data to image file img.offset */
++		update_image_region_start_pos(node, n_img_actual_saved);
++		if (node->ops->pre_save == NULL) {
++			n_img = 0;
++		} else {
++			n_img = node->ops->pre_save(node);
++			if (n_img == INV) {
++				gvt_err("Save obj %s failed\n",
++						node->name);
++				n_img_actual_saved = INV;
++				break;
++			}
++		}
++		/* show GREEN on screen with colorred term */
++		gvt_dbg_core("Save obj %s success with %d bytes\n",
++			       node->name, n_img);
++		n_img_actual_saved += n_img;
++
++		if (n_img_actual_saved >= MIGRATION_IMG_MAX_SIZE) {
++			gvt_err("Image size overflow!!! data=%d MAX=%ld\n",
++				n_img_actual_saved,
++				MIGRATION_IMG_MAX_SIZE);
++			/* Mark as invalid */
++			n_img_actual_saved = INV;
++			break;
++		}
++	}
++	/* update the header with real image size */
++	node = find_migration_obj(GVT_MIGRATION_HEAD);
++	update_image_region_start_pos(node, n_img_actual_saved);
++	node->ops->pre_save(node);
++	return n_img_actual_saved;
++}
++
++static int vgpu_restore(void *img)
++{
++	struct gvt_migration_obj_t *node;
++	struct gvt_region_t region;
++	int n_img_actual_recv = 0;
++	u32 n_img_actual_size;
++
++	/* load image header at first to get real size */
++	memcpy(&region, img, sizeof(struct gvt_region_t));
++	if (region.type != GVT_MIGRATION_HEAD) {
++		gvt_err("Invalid image. Doesn't start with image_head\n");
++		return INV;
++	}
++
++	n_img_actual_recv += sizeof(struct gvt_region_t);
++	node = find_migration_obj(region.type);
++	update_image_region_start_pos(node, n_img_actual_recv);
++	n_img_actual_size = node->ops->pre_load(node, region.size);
++	if (n_img_actual_size == INV) {
++		gvt_err("Load img %s failed\n", node->name);
++		return INV;
++	}
++
++	if (n_img_actual_size >= MIGRATION_IMG_MAX_SIZE) {
++		gvt_err("Invalid image. magic_id offset = 0x%x\n",
++				n_img_actual_size);
++		return INV;
++	}
++
++	n_img_actual_recv += sizeof(struct gvt_image_header_t);
++
++	do {
++		int n_img = INV;
++		/* parse each region head to get type and size */
++		memcpy(&region, img + n_img_actual_recv,
++				sizeof(struct gvt_region_t));
++		node = find_migration_obj(region.type);
++		if (node == NULL)
++			break;
++		n_img_actual_recv += sizeof(struct gvt_region_t);
++		update_image_region_start_pos(node, n_img_actual_recv);
++
++		if (node->ops->pre_load == NULL) {
++			n_img = 0;
++		} else {
++			n_img = node->ops->pre_load(node, region.size);
++			if (n_img == INV) {
++				/* Error occurred. colored as RED */
++				gvt_err("Load obj %s failed\n",
++						node->name);
++				n_img_actual_recv = INV;
++				break;
++			}
++		}
++		/* show GREEN on screen with colorred term */
++		gvt_dbg_core("Load obj %s success with %d bytes.\n",
++			       node->name, n_img);
++		n_img_actual_recv += n_img;
++	} while (n_img_actual_recv < MIGRATION_IMG_MAX_SIZE);
++
++	return n_img_actual_recv;
++}
++
++int intel_gvt_save_restore(struct intel_vgpu *vgpu, char *buf, size_t count,
++			   void *base, uint64_t off, bool restore)
++{
++	struct gvt_migration_obj_t *node;
++	int ret = 0;
++
++	mutex_lock(&gvt_migration);
++
++	FOR_EACH_OBJ(node, gvt_device_objs) {
++		update_image_region_base(node, base + off);
++		update_image_region_start_pos(node, INV);
++		update_status_region_base(node, vgpu);
++	}
++
++	if (restore) {
++		vgpu->pv_notified = true;
++		if (vgpu_restore(base + off) == INV) {
++			ret = -EFAULT;
++			goto exit;
++		}
++	} else {
++		if (vgpu_save(base + off) == INV) {
++			ret = -EFAULT;
++			goto exit;
++		}
++
++	}
++
++exit:
++	mutex_unlock(&gvt_migration);
++
++	return ret;
++}
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/migrate.h b/drivers/gpu/drm/i915/gvt/migrate.h
+--- a/drivers/gpu/drm/i915/gvt/migrate.h	1970-01-01 03:00:00.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/migrate.h	2019-10-29 16:07:52.269554109 +0300
+@@ -0,0 +1,102 @@
++/*
++ * Copyright(c) 2011-2016 Intel Corporation. All rights reserved.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the "Software"),
++ * to deal in the Software without restriction, including without limitation
++ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
++ * and/or sell copies of the Software, and to permit persons to whom the
++ * Software is furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice (including the next
++ * paragraph) shall be included in all copies or substantial portions of the
++ * Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
++ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++ * SOFTWARE.
++ *
++ * Authors:
++ *    Yulei Zhang <yulei.zhang@intel.com>
++ *    Xiao Zheng <xiao.zheng@intel.com>
++ */
++
++#ifndef __GVT_MIGRATE_H__
++#define __GVT_MIGRATE_H__
++
++/* Assume 9MB is eough to descript VM kernel state */
++#define MIGRATION_IMG_MAX_SIZE (9*1024UL*1024UL)
++#define GVT_MMIO_SIZE (2*1024UL*1024UL)
++#define GVT_MIGRATION_VERSION	0
++
++enum gvt_migration_type_t {
++	GVT_MIGRATION_NONE,
++	GVT_MIGRATION_HEAD,
++	GVT_MIGRATION_CFG_SPACE,
++	GVT_MIGRATION_VREG,
++	GVT_MIGRATION_SREG,
++	GVT_MIGRATION_GTT,
++	GVT_MIGRATION_PPGTT,
++	GVT_MIGRATION_WORKLOAD,
++	GVT_MIGRATION_OPREGION,
++	GVT_MIGRATION_EXECLIST,
++};
++
++struct gvt_ppgtt_entry_t {
++	int page_table_level;
++	u64 pdp[4];
++};
++
++struct gvt_pending_workload_t {
++	int ring_id;
++	bool emulate_schedule_in;
++	struct execlist_ctx_descriptor_format ctx_desc;
++	struct intel_vgpu_elsp_dwords elsp_dwords;
++};
++
++struct gvt_region_t {
++	enum gvt_migration_type_t type;
++	u32 size;		/* obj size of bytes to read/write */
++};
++
++struct gvt_migration_obj_t {
++	void *img;
++	void *vgpu;
++	u32 offset;
++	struct gvt_region_t region;
++	/* operation func defines how data save-restore */
++	struct gvt_migration_operation_t *ops;
++	char *name;
++};
++
++struct gvt_migration_operation_t {
++	/* called during pre-copy stage, VM is still alive */
++	int (*pre_copy)(const struct gvt_migration_obj_t *obj);
++	/* called before when VM was paused,
++	 * return bytes transferred
++	 */
++	int (*pre_save)(const struct gvt_migration_obj_t *obj);
++	/* called before load the state of device */
++	int (*pre_load)(const struct gvt_migration_obj_t *obj, u32 size);
++	/* called after load the state of device, VM already alive */
++	int (*post_load)(const struct gvt_migration_obj_t *obj, u32 size);
++};
++
++struct gvt_image_header_t {
++	int version;
++	int data_size;
++	u64 crc_check;
++	u64 global_data[64];
++};
++
++struct gvt_logd_pfn {
++	struct rb_node	node;
++	unsigned long	gfn;
++	atomic_t	ref_count;
++};
++
++#endif
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/mmio.c b/drivers/gpu/drm/i915/gvt/mmio.c
+--- a/drivers/gpu/drm/i915/gvt/mmio.c	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/mmio.c	2019-10-29 16:07:52.269554109 +0300
+@@ -49,6 +49,19 @@ int intel_vgpu_gpa_to_mmio_offset(struct
+ 	return gpa - gttmmio_gpa;
+ }
+ 
++/**
++ * intel_vgpu_mmio_offset_to_GPA - translate a MMIO offset to GPA
++ * @vgpu: a vGPU
++ *
++ * Returns:
++ * Zero on success, negative error code if failed
++ */
++int intel_vgpu_mmio_offset_to_gpa(struct intel_vgpu *vgpu, u64 offset)
++{
++	return offset + ((*(u64 *)(vgpu_cfg_space(vgpu) + PCI_BASE_ADDRESS_0)) &
++			~GENMASK(3, 0));
++}
++
+ #define reg_is_mmio(gvt, reg)  \
+ 	(reg >= 0 && reg < gvt->device_info.mmio_size)
+ 
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/mmio.h b/drivers/gpu/drm/i915/gvt/mmio.h
+--- a/drivers/gpu/drm/i915/gvt/mmio.h	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/mmio.h	2019-10-29 16:07:52.269554109 +0300
+@@ -82,6 +82,7 @@ void intel_vgpu_reset_mmio(struct intel_
+ void intel_vgpu_clean_mmio(struct intel_vgpu *vgpu);
+ 
+ int intel_vgpu_gpa_to_mmio_offset(struct intel_vgpu *vgpu, u64 gpa);
++int intel_vgpu_mmio_offset_to_gpa(struct intel_vgpu *vgpu, u64 offset);
+ 
+ int intel_vgpu_emulate_mmio_read(struct intel_vgpu *vgpu, u64 pa,
+ 				void *p_data, unsigned int bytes);
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/vgpu.c b/drivers/gpu/drm/i915/gvt/vgpu.c
+--- a/drivers/gpu/drm/i915/gvt/vgpu.c	2019-10-17 23:45:44.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/vgpu.c	2019-10-29 16:07:52.269554109 +0300
+@@ -48,8 +48,7 @@ void populate_pvinfo_page(struct intel_v
+ 	vgpu_vreg_t(vgpu, vgtif_reg(vgt_caps)) |= VGT_CAPS_HWSP_EMULATION;
+ 	vgpu_vreg_t(vgpu, vgtif_reg(vgt_caps)) |= VGT_CAPS_HUGE_GTT;
+ 
+-	vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.mappable_gmadr.base)) =
+-		vgpu_aperture_gmadr_base(vgpu);
++	vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.mappable_gmadr.base)) = 0;
+ 	vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.mappable_gmadr.size)) =
+ 		vgpu_aperture_sz(vgpu);
+ 	vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.nonmappable_gmadr.base)) =
+@@ -214,6 +213,7 @@ void intel_gvt_activate_vgpu(struct inte
+ {
+ 	mutex_lock(&vgpu->gvt->lock);
+ 	vgpu->active = true;
++	intel_vgpu_start_schedule(vgpu);
+ 	mutex_unlock(&vgpu->gvt->lock);
+ }
+ 
+@@ -524,6 +524,9 @@ void intel_gvt_reset_vgpu_locked(struct
+ {
+ 	struct intel_gvt *gvt = vgpu->gvt;
+ 	struct intel_gvt_workload_scheduler *scheduler = &gvt->scheduler;
++	u64 maddr = vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.mappable_gmadr.base));
++	u64 unmaddr = vgpu_vreg_t(vgpu,
++				vgtif_reg(avail_rs.nonmappable_gmadr.base));
+ 	unsigned int resetting_eng = dmlr ? ALL_ENGINES : engine_mask;
+ 
+ 	gvt_dbg_core("------------------------------------------\n");
+@@ -556,6 +559,10 @@ void intel_gvt_reset_vgpu_locked(struct
+ 
+ 		intel_vgpu_reset_mmio(vgpu, dmlr);
+ 		populate_pvinfo_page(vgpu);
++		vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.mappable_gmadr.base)) =
++			maddr;
++		vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.nonmappable_gmadr.base)) =
++			unmaddr;
+ 		intel_vgpu_reset_display(vgpu);
+ 
+ 		if (dmlr) {
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/gpu/drm/i915/gvt/xengt.c
+--- a/drivers/gpu/drm/i915/gvt/xengt.c	1970-01-01 03:00:00.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/xengt.c	2019-10-29 16:07:52.270554111 +0300
+@@ -0,0 +1,1859 @@
++/*
++ * Interfaces coupled to Xen
++ *
++ * Copyright(c) 2011-2013 Intel Corporation. All rights reserved.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of Version 2 of the GNU General Public License as
++ * published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.
++ */
++
++/*
++ * NOTE:
++ * This file contains hypervisor specific interactions to
++ * implement the concept of mediated pass-through framework.
++ * What this file provides is actually a general abstraction
++ * of in-kernel device model, which is not vgt specific.
++ *
++ * Now temporarily in vgt code. long-term this should be
++ * in hypervisor (xen/kvm) specific directory
++ */
++#include <linux/kernel.h>
++#include <linux/mm.h>
++#include <linux/types.h>
++#include <linux/kthread.h>
++#include <linux/time.h>
++#include <linux/freezer.h>
++#include <linux/wait.h>
++#include <linux/sched.h>
++
++#include <asm/xen/hypercall.h>
++#include <asm/xen/page.h>
++#include <xen/xen-ops.h>
++#include <xen/events.h>
++#include <xen/interface/hvm/params.h>
++#include <xen/interface/hvm/ioreq.h>
++#include <xen/interface/hvm/hvm_op.h>
++#include <xen/interface/hvm/dm_op.h>
++#include <xen/interface/memory.h>
++#include <xen/interface/platform.h>
++#include <xen/interface/vcpu.h>
++
++#include <i915_drv.h>
++#include <i915_pvinfo.h>
++#include <gvt/gvt.h>
++#include "xengt.h"
++
++MODULE_AUTHOR("Intel Corporation");
++MODULE_DESCRIPTION("XenGT mediated passthrough driver");
++MODULE_LICENSE("GPL");
++MODULE_VERSION("0.1");
++
++struct kobject *gvt_ctrl_kobj;
++static struct kset *gvt_kset;
++static DEFINE_MUTEX(gvt_sysfs_lock);
++
++struct xengt_struct xengt_priv;
++const struct intel_gvt_ops *intel_gvt_ops;
++
++static ssize_t kobj_attr_show(struct kobject *kobj, struct attribute *attr,
++		char *buf)
++{
++	struct kobj_attribute *kattr;
++	ssize_t ret = -EIO;
++
++	kattr = container_of(attr, struct kobj_attribute, attr);
++	if (kattr->show)
++		ret = kattr->show(kobj, kattr, buf);
++	return ret;
++}
++
++static ssize_t kobj_attr_store(struct kobject *kobj,
++	struct attribute *attr,	const char *buf, size_t count)
++{
++	struct kobj_attribute *kattr;
++	ssize_t ret = -EIO;
++
++	kattr = container_of(attr, struct kobj_attribute, attr);
++	if (kattr->store)
++		ret = kattr->store(kobj, kattr, buf, count);
++	return ret;
++}
++
++/*
++ * TODO
++ * keep the sysfs name of create_vgt_instance no change to reuse current
++ * test tool-kit. Better name should be: create_xengt_instance +
++ * destroy_xengt_instance.
++ */
++static struct kobj_attribute xengt_instance_attr =
++__ATTR(create_vgt_instance, 0220, NULL, xengt_sysfs_instance_manage);
++
++static struct kobj_attribute xengt_vm_attr =
++__ATTR(vgpu_id, 0440, xengt_sysfs_vgpu_id, NULL);
++
++static struct kobj_attribute xengt_sch_attr =
++__ATTR(schedule, 0220, NULL, xengt_sysfs_vgpu_schedule);
++
++static struct attribute *xengt_ctrl_attrs[] = {
++	&xengt_instance_attr.attr,
++	NULL,   /* need to NULL terminate the list of attributes */
++};
++
++static struct attribute *xengt_vm_attrs[] = {
++	&xengt_vm_attr.attr,
++	&xengt_sch_attr.attr,
++	NULL,   /* need to NULL terminate the list of attributes */
++};
++
++const struct sysfs_ops xengt_kobj_sysfs_ops = {
++	.show   = kobj_attr_show,
++	.store  = kobj_attr_store,
++};
++
++static struct kobj_type xengt_instance_ktype = {
++	.sysfs_ops  = &xengt_kobj_sysfs_ops,
++	.default_attrs = xengt_vm_attrs,
++};
++
++static struct kobj_type xengt_ctrl_ktype = {
++	.sysfs_ops  = &xengt_kobj_sysfs_ops,
++	.default_attrs = xengt_ctrl_attrs,
++};
++
++static ssize_t
++device_state_read(struct file *filp, struct kobject *kobj,
++		struct bin_attribute *bin_attr,
++		char *buf, loff_t off, size_t count)
++{
++	struct xengt_hvm_dev *info = container_of((kobj), struct xengt_hvm_dev, kobj);
++	struct intel_vgpu *vgpu = info->vgpu;
++	void *base = info->dev_state;
++
++	if (!count || off < 0 || (off + count > bin_attr->size) || (off & 0x3))
++		return -EINVAL;
++
++	if (info->dev_state == NULL)
++		return -EINVAL;
++
++	if (off == 0) {
++		if (intel_gvt_ops->vgpu_save_restore(vgpu,
++				buf, count, base, 0, false) != 0)
++			return -EINVAL;
++	}
++
++	memcpy(buf, base + off, count);
++
++	return count;
++}
++
++static ssize_t
++device_state_write(struct file *filp, struct kobject *kobj,
++		struct bin_attribute *bin_attr,
++		char *buf, loff_t off, size_t count)
++{
++	struct xengt_hvm_dev *info = container_of((kobj), struct xengt_hvm_dev, kobj);
++	struct intel_vgpu *vgpu = info->vgpu;
++	void *base = info->dev_state;
++
++	if (!count || off < 0 || (off + count > bin_attr->size) || (off & 0x3))
++		return -EINVAL;
++
++	if (info->dev_state == NULL)
++		return -EINVAL;
++
++	memcpy(base + off, buf, count);
++
++	if ((off + count) == bin_attr->size) {
++		if (intel_gvt_ops->vgpu_save_restore(vgpu,
++				buf, count, base, 0, true) != 0)
++			return -EINVAL;
++	}
++
++	return count;
++}
++
++static struct bin_attribute vgpu_state_attr = {
++	.attr =	{
++		.name = "device_state",
++		.mode = 0660
++	},
++	.size = MIGRATION_IMG_MAX_SIZE,
++	.read = device_state_read,
++	.write = device_state_write,
++};
++
++static struct intel_vgpu_type *xengt_choose_vgpu_type(
++		struct xengt_hvm_params *vp)
++{
++	struct intel_vgpu_type *vgpu_type;
++	unsigned int  i;
++
++	for (i = 0;  i < xengt_priv.gvt->num_types; i++) {
++		vgpu_type = &xengt_priv.gvt->types[i];
++		if ((vgpu_type->low_gm_size >> 20) == vp->aperture_sz) {
++			gvt_dbg_core("choose vgpu type:%d\n", i);
++			return vgpu_type;
++		}
++	}
++
++	gvt_err("specify a wrong low_gm_sz in hvm.cfg: %d\n", vp->aperture_sz);
++		return NULL;
++}
++
++static int xengt_sysfs_add_instance(struct xengt_hvm_params *vp)
++{
++	int ret = 0;
++	struct intel_vgpu *vgpu;
++	struct xengt_hvm_dev *info;
++	struct intel_vgpu_type *type;
++
++	type = xengt_choose_vgpu_type(vp);
++	if (type == NULL) {
++		gvt_err("choose vgpu type failed");
++		return -EINVAL;
++	}
++	mutex_lock(&gvt_sysfs_lock);
++	vgpu = xengt_instance_create(vp->vm_id, type);
++	mutex_unlock(&gvt_sysfs_lock);
++	if (vgpu == NULL) {
++		gvt_err("xengt_sysfs_add_instance failed.\n");
++		ret = -EINVAL;
++	} else {
++		info = (struct xengt_hvm_dev *) vgpu->handle;
++		xengt_priv.vgpus[vgpu->id - 1] = vgpu;
++		gvt_dbg_core("add xengt instance for vm-%d with vgpu-%d.\n",
++			vp->vm_id, vgpu->id);
++
++		kobject_init(&info->kobj, &xengt_instance_ktype);
++		info->kobj.kset = gvt_kset;
++		/* add kobject, NULL parent indicates using kset as parent */
++		ret = kobject_add(&info->kobj, NULL, "vm%u", info->vm_id);
++		if (ret) {
++			gvt_err("%s: kobject add error: %d\n", __func__, ret);
++			kobject_put(&info->kobj);
++		}
++
++		ret = sysfs_create_bin_file(&info->kobj, &vgpu_state_attr);
++		if (ret) {
++			gvt_err("%s: kobject add error: %d\n", __func__, ret);
++			kobject_put(&info->kobj);
++		}
++	}
++
++	return ret;
++}
++
++static struct intel_vgpu *vgpu_from_vm_id(int vm_id)
++{
++	int i;
++
++	/* vm_id is negtive in del_instance call */
++	if (vm_id < 0)
++		vm_id = -vm_id;
++	for (i = 0; i < GVT_MAX_VGPU_INSTANCE; i++) {
++		if (xengt_priv.vgpus[i]) {
++			struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)
++				(xengt_priv.vgpus[i]->handle);
++			if (info->vm_id == vm_id)
++				return xengt_priv.vgpus[i];
++		}
++	}
++	return NULL;
++}
++
++static int xengt_sysfs_del_instance(struct xengt_hvm_params *vp)
++{
++	int ret = 0;
++	struct intel_vgpu *vgpu = vgpu_from_vm_id(vp->vm_id);
++	struct xengt_hvm_dev *info;
++
++	if (vgpu) {
++		gvt_dbg_core("xengt: remove vm-%d sysfs node.\n", vp->vm_id);
++
++		info = (struct xengt_hvm_dev *) vgpu->handle;
++		kobject_put(&info->kobj);
++
++		mutex_lock(&gvt_sysfs_lock);
++		xengt_priv.vgpus[vgpu->id - 1] = NULL;
++		xengt_instance_destroy(vgpu);
++		mutex_unlock(&gvt_sysfs_lock);
++	}
++
++	return ret;
++}
++
++static ssize_t xengt_sysfs_vgpu_id(struct kobject *kobj,
++		struct kobj_attribute *attr, char *buf)
++{
++	int i;
++
++	for (i = 0; i < GVT_MAX_VGPU_INSTANCE; i++) {
++		if (xengt_priv.vgpus[i] &&
++			(kobj == &((struct xengt_hvm_dev *)
++				(xengt_priv.vgpus[i]->handle))->kobj)) {
++			return sprintf(buf, "%d\n", xengt_priv.vgpus[i]->id);
++		}
++	}
++	return 0;
++}
++
++static ssize_t xengt_sysfs_instance_manage(struct kobject *kobj,
++		struct kobj_attribute *attr, const char *buf, size_t count)
++{
++	struct xengt_hvm_params vp;
++	int param_cnt;
++	char param_str[64];
++	int rc;
++	int high_gm_sz;
++	int low_gm_sz;
++
++	/* We expect the param_str should be vmid,a,b,c (where the guest
++	 * wants a MB aperture and b MB gm, and c fence registers) or -vmid
++	 * (where we want to release the vgt instance).
++	 */
++	(void)sscanf(buf, "%63s", param_str);
++	param_cnt = sscanf(param_str, "%d,%d,%d,%d,%d,%d", &vp.vm_id,
++			&low_gm_sz, &high_gm_sz, &vp.fence_sz, &vp.gvt_primary,
++			&vp.cap);
++	vp.aperture_sz = low_gm_sz;
++	vp.gm_sz = high_gm_sz + low_gm_sz;
++	if (param_cnt == 1) {
++		if (vp.vm_id >= 0)
++			return -EINVAL;
++	} else if (param_cnt == 4 || param_cnt == 5 || param_cnt == 6) {
++		if (!(vp.vm_id > 0 && vp.aperture_sz > 0 &&
++			vp.aperture_sz <= vp.gm_sz && vp.fence_sz > 0))
++			return -EINVAL;
++
++		if (param_cnt == 5 || param_cnt == 6) {
++			/* -1/0/1 means: not-specified, non-primary, primary */
++			if (vp.gvt_primary < -1 || vp.gvt_primary > 1)
++				return -EINVAL;
++			if (vp.cap < 0 || vp.cap > 100)
++				return -EINVAL;
++		} else {
++			vp.cap = 0; /* default 0 means no upper cap. */
++			vp.gvt_primary = -1; /* no valid value specified. */
++		}
++	} else
++		return -EINVAL;
++
++	rc = (vp.vm_id > 0) ? xengt_sysfs_add_instance(&vp) :
++		xengt_sysfs_del_instance(&vp);
++
++	return rc < 0 ? rc : count;
++}
++
++static int xengt_hvm_modified_memory(struct xengt_hvm_dev *info, uint64_t start_pfn)
++{
++	xen_dm_op_buf_t dm_buf[2];
++	struct xen_dm_op op;
++	struct xen_dm_op_modified_memory *header;
++	struct xen_dm_op_modified_memory_extent data;
++	int rc;
++
++	memset(&op, 0, sizeof(op));
++	memset(&data, 0, sizeof(data));
++
++	op.op = XEN_DMOP_modified_memory;
++	header = &op.u.modified_memory;
++	header->nr_extents = 1;
++
++	data.nr = 1;
++	data.first_pfn = start_pfn;
++
++	dm_buf[0].h = &op;
++	dm_buf[0].size = sizeof(op);
++
++	dm_buf[1].h = &data;
++	dm_buf[1].size = sizeof(data);
++
++	rc = HYPERVISOR_dm_op(info->vm_id, 2, dm_buf);
++
++	if (rc < 0)
++		gvt_err("Cannot modified memory: %d!\n", rc);
++
++	return rc;
++}
++
++static void xengt_logd_sync(struct xengt_hvm_dev *info)
++{
++	struct gvt_logd_pfn *logd, *next;
++
++	mutex_lock(&info->logd_lock);
++	rbtree_postorder_for_each_entry_safe(logd, next,
++					     &info->logd_list, node)
++		xengt_hvm_modified_memory(info, logd->gfn);
++	mutex_unlock(&info->logd_lock);
++}
++
++static ssize_t xengt_sysfs_vgpu_schedule(struct kobject *kobj,
++		struct kobj_attribute *attr, const char *buf, size_t count)
++{
++	struct xengt_hvm_dev *info =
++		container_of((kobj), struct xengt_hvm_dev, kobj);
++	struct intel_vgpu *vgpu = info->vgpu;
++	int running;
++
++	mutex_lock(&gvt_sysfs_lock);
++	if (sscanf(buf, "%d", &running) != 1) {
++		mutex_unlock(&gvt_sysfs_lock);
++		return -EINVAL;
++	}
++
++	if (running) {
++		if (info->iosrv_enabled == 0) {
++			hvm_claim_ioreq_server_type(info, 1);
++			xen_hvm_toggle_iorequest_server(info, true);
++		}
++		intel_gvt_ops->vgpu_activate(vgpu);
++	} else {
++		intel_gvt_ops->vgpu_deactivate(vgpu);
++		if (info->iosrv_enabled != 0) {
++			hvm_claim_ioreq_server_type(info, 0);
++			xen_hvm_toggle_iorequest_server(info, false);
++		}
++		xengt_logd_sync(info);
++	}
++
++	mutex_unlock(&gvt_sysfs_lock);
++
++	return count;
++}
++
++int xengt_sysfs_init(struct intel_gvt *gvt)
++{
++	int ret;
++
++	/*
++	 * TODO.
++	 * keep the name of 'vgt', not 'gvt', so that current tool kit
++	 * still could be used.
++	 */
++	gvt_kset = kset_create_and_add("vgt", NULL, kernel_kobj);
++	if (!gvt_kset) {
++		ret = -ENOMEM;
++		goto kset_fail;
++	}
++
++	gvt_ctrl_kobj = kzalloc(sizeof(struct kobject), GFP_KERNEL);
++	if (!gvt_ctrl_kobj) {
++		ret = -ENOMEM;
++		goto ctrl_fail;
++	}
++
++	gvt_ctrl_kobj->kset = gvt_kset;
++	ret = kobject_init_and_add(gvt_ctrl_kobj, &xengt_ctrl_ktype,
++			NULL, "control");
++	if (ret) {
++		ret = -EINVAL;
++		goto kobj_fail;
++	}
++
++	return 0;
++
++kobj_fail:
++	kobject_put(gvt_ctrl_kobj);
++ctrl_fail:
++	kset_unregister(gvt_kset);
++kset_fail:
++	return ret;
++}
++
++void xengt_sysfs_del(void)
++{
++	kobject_put(gvt_ctrl_kobj);
++	kset_unregister(gvt_kset);
++}
++
++/* Translate from VM's guest pfn to machine pfn */
++static unsigned long xen_g2m_pfn(domid_t vm_id, unsigned long g_pfn)
++{
++	struct xen_get_mfn_from_pfn pfn_arg;
++	int rc;
++	unsigned long pfn_list[1];
++
++	pfn_list[0] = g_pfn;
++
++	set_xen_guest_handle(pfn_arg.pfn_list, pfn_list);
++	pfn_arg.nr_pfns = 1;
++	pfn_arg.domid = vm_id;
++
++	rc = HYPERVISOR_memory_op(XENMEM_get_mfn_from_pfn, &pfn_arg);
++	if (rc < 0) {
++		gvt_err("failed to get mfn for gpfn 0x%lx: %d\n", g_pfn, rc);
++		return INTEL_GVT_INVALID_ADDR;
++	}
++
++	return pfn_list[0];
++}
++
++static int xen_get_max_gpfn(domid_t vm_id)
++{
++	domid_t dom_id = vm_id;
++	int max_gpfn = HYPERVISOR_memory_op(XENMEM_maximum_gpfn, &dom_id);
++
++	if (max_gpfn < 0)
++		max_gpfn = 0;
++	return max_gpfn;
++}
++
++static int xen_pause_domain(domid_t vm_id)
++{
++	int rc;
++	struct xen_domctl domctl;
++
++	domctl.domain = vm_id;
++	domctl.cmd = XEN_DOMCTL_pausedomain;
++	domctl.interface_version = XEN_DOMCTL_INTERFACE_VERSION;
++
++	rc = HYPERVISOR_domctl(&domctl);
++	if (rc != 0)
++		gvt_dbg_core("xen_pause_domain fail: %d!\n", rc);
++
++	return rc;
++}
++
++static int xen_shutdown_domain(domid_t  vm_id)
++{
++	int rc;
++	struct sched_remote_shutdown r;
++
++	r.reason = SHUTDOWN_crash;
++	r.domain_id = vm_id;
++	rc = HYPERVISOR_sched_op(SCHEDOP_remote_shutdown, &r);
++	if (rc != 0)
++		gvt_dbg_core("xen_shutdown_domain failed: %d\n", rc);
++	return rc;
++}
++
++static int xen_domain_iomem_perm(domid_t domain_id, uint64_t first_mfn,
++							uint64_t nr_mfns, uint8_t allow_access)
++{
++	struct xen_domctl arg;
++	int rc;
++
++	arg.domain = domain_id;
++	arg.cmd = XEN_DOMCTL_iomem_permission;
++	arg.interface_version = XEN_DOMCTL_INTERFACE_VERSION;
++	arg.u.iomem_perm.first_mfn = first_mfn;
++	arg.u.iomem_perm.nr_mfns = nr_mfns;
++	arg.u.iomem_perm.allow_access = allow_access;
++	rc = HYPERVISOR_domctl(&arg);
++
++	return rc;
++}
++
++static int xen_get_nr_vcpu(domid_t vm_id)
++{
++	struct xen_domctl arg;
++	int rc;
++
++	arg.domain = vm_id;
++	arg.cmd = XEN_DOMCTL_getdomaininfo;
++	arg.interface_version = XEN_DOMCTL_INTERFACE_VERSION;
++
++	rc = HYPERVISOR_domctl(&arg);
++	if (rc < 0) {
++		gvt_err("HYPERVISOR_domctl fail ret=%d\n", rc);
++		/* assume it is UP */
++		return 1;
++	}
++
++	return arg.u.getdomaininfo.max_vcpu_id + 1;
++}
++
++static int xen_hvm_memory_mapping(domid_t vm_id, uint64_t first_gfn,
++		uint64_t first_mfn, uint32_t nr_mfns, uint32_t add_mapping)
++{
++	struct xen_domctl arg;
++	int rc = 0, err = 0;
++	unsigned long done = 0, mapping_sz = 64;
++
++	if (add_mapping) {
++		rc = xen_domain_iomem_perm(vm_id, first_mfn, nr_mfns, 1);
++		if (rc < 0) {
++			gvt_err("xen_domain_iomem_perm failed: %d\n",	rc);
++			return rc;
++		}
++	}
++
++	arg.domain = vm_id;
++	arg.cmd = XEN_DOMCTL_memory_mapping;
++	arg.interface_version = XEN_DOMCTL_INTERFACE_VERSION;
++	arg.u.memory_mapping.add_mapping = add_mapping;
++
++retry:
++	if (nr_mfns > 0 && mapping_sz > 0) {
++		while (done < nr_mfns) {
++			mapping_sz = min(nr_mfns - done, mapping_sz);
++			arg.u.memory_mapping.nr_mfns = mapping_sz;
++			arg.u.memory_mapping.first_gfn = first_gfn + done;
++			arg.u.memory_mapping.first_mfn = first_mfn + done;
++			err = HYPERVISOR_domctl(&arg);
++			if (err == -E2BIG) {
++				mapping_sz /= 2;
++				goto retry;
++			}
++			//Save first error status.
++			if (!rc)
++				rc = err;
++
++			if (err && add_mapping != DPCI_REMOVE_MAPPING)
++				break;
++			done += mapping_sz;
++		}
++
++		//Undo operation, if some error to mapping.
++		if (rc && add_mapping != DPCI_REMOVE_MAPPING) {
++			xen_hvm_memory_mapping(vm_id, first_gfn, first_mfn,
++						nr_mfns, DPCI_REMOVE_MAPPING);
++		}
++	}
++
++	if (rc < 0) {
++		gvt_err("map fail: %d gfn:0x%llx mfn:0x%llx nr:%d\n",
++				rc, first_gfn, first_mfn, nr_mfns);
++		return rc;
++	}
++
++	if (!add_mapping) {
++		rc = xen_domain_iomem_perm(vm_id, first_mfn, nr_mfns, 0);
++		if (rc < 0) {
++			gvt_err("xen_domain_iomem_perm failed: %d\n", rc);
++			return rc;
++		}
++	}
++
++	return rc;
++}
++
++static int xen_hvm_create_iorequest_server(struct xengt_hvm_dev *info)
++{
++	xen_dm_op_buf_t dm_buf;
++	struct xen_dm_op op;
++	struct xen_dm_op_create_ioreq_server *data;
++	int r;
++
++	memset(&op, 0, sizeof(op));
++
++	op.op = XEN_DMOP_create_ioreq_server;
++	data = &op.u.create_ioreq_server;
++	data->handle_bufioreq = 0;
++
++	dm_buf.h = &op;
++	dm_buf.size = sizeof(op);
++
++	r = HYPERVISOR_dm_op(info->vm_id, 1, &dm_buf);
++	if (r < 0) {
++		gvt_err("Cannot create io-requset server: %d!\n", r);
++		return r;
++	}
++	info->iosrv_id = data->id;
++
++	return r;
++}
++
++static int xen_hvm_toggle_iorequest_server(struct xengt_hvm_dev *info, bool enable)
++{
++	xen_dm_op_buf_t dm_buf;
++	struct xen_dm_op op;
++	struct xen_dm_op_set_ioreq_server_state *data;
++	int r;
++
++	if (info->iosrv_enabled == !!enable)
++		return 0;
++
++	info->iosrv_enabled = !!enable;
++
++	memset(&op, 0, sizeof(op));
++
++	op.op = XEN_DMOP_set_ioreq_server_state;
++	data = &op.u.set_ioreq_server_state;
++	data->id = info->iosrv_id;
++	data->enabled = !!enable;
++
++	dm_buf.h = &op;
++	dm_buf.size = sizeof(op);
++
++	r = HYPERVISOR_dm_op(info->vm_id, 1, &dm_buf);
++	if (r < 0) {
++		gvt_err("Cannot %s io-request server: %d!\n",
++			enable ? "enable" : "disbale",  r);
++		return r;
++	}
++
++	return r;
++}
++
++static int xen_hvm_get_ioreq_pfn(struct xengt_hvm_dev *info, uint64_t *value)
++{
++	xen_dm_op_buf_t dm_buf;
++	struct xen_dm_op op;
++	struct xen_dm_op_get_ioreq_server_info *data;
++	int r;
++
++	memset(&op, 0, sizeof(op));
++
++	op.op = XEN_DMOP_get_ioreq_server_info;
++	data = &op.u.get_ioreq_server_info;
++	data->id = info->iosrv_id;
++
++	dm_buf.h = &op;
++	dm_buf.size = sizeof(op);
++
++	r = HYPERVISOR_dm_op(info->vm_id, 1, &dm_buf);
++	if (r < 0) {
++		gvt_err("Cannot get ioreq pfn: %d!\n", r);
++		return r;
++	}
++	*value = data->ioreq_pfn;
++	return r;
++}
++
++static int xen_hvm_destroy_iorequest_server(struct xengt_hvm_dev *info)
++{
++	xen_dm_op_buf_t dm_buf;
++	struct xen_dm_op op;
++	struct xen_dm_op_destroy_ioreq_server *data;
++	int r;
++
++	memset(&op, 0, sizeof(op));
++
++	op.op = XEN_DMOP_destroy_ioreq_server;
++	data = &op.u.destroy_ioreq_server;
++	data->id = info->iosrv_id;
++
++	dm_buf.h = &op;
++	dm_buf.size = sizeof(op);
++
++	r = HYPERVISOR_dm_op(info->vm_id, 1, &dm_buf);
++	if (r < 0) {
++		gvt_err("Cannot destroy io-request server(%d): %d!\n",
++			info->iosrv_id, r);
++		return r;
++	}
++	info->iosrv_id = 0;
++
++	return r;
++}
++
++static struct vm_struct *xen_hvm_map_iopage(struct xengt_hvm_dev *info)
++{
++	uint64_t ioreq_pfn;
++	int rc;
++
++	rc = xen_hvm_create_iorequest_server(info);
++	if (rc < 0)
++		return NULL;
++	rc = xen_hvm_get_ioreq_pfn(info, &ioreq_pfn);
++	if (rc < 0) {
++		xen_hvm_destroy_iorequest_server(info);
++		return NULL;
++	}
++
++	return xen_remap_domain_mfn_range_in_kernel(ioreq_pfn, 1, info->vm_id);
++}
++
++static int xen_hvm_map_io_range_to_ioreq_server(struct xengt_hvm_dev *info,
++		int is_mmio, uint64_t start, uint64_t end, int map)
++{
++	xen_dm_op_buf_t dm_buf;
++	struct xen_dm_op op;
++	struct xen_dm_op_ioreq_server_range *data;
++	int r;
++
++	memset(&op, 0, sizeof(op));
++
++	op.op = map ? XEN_DMOP_map_io_range_to_ioreq_server :
++		XEN_DMOP_unmap_io_range_from_ioreq_server;
++	data = map ? &op.u.map_io_range_to_ioreq_server :
++		&op.u.unmap_io_range_from_ioreq_server;
++	data->id = info->iosrv_id;
++	data->type = is_mmio ? XEN_DMOP_IO_RANGE_MEMORY :
++		XEN_DMOP_IO_RANGE_PORT;
++	data->start = start;
++	data->end = end;
++
++	dm_buf.h = &op;
++	dm_buf.size = sizeof(op);
++
++	r = HYPERVISOR_dm_op(info->vm_id, 1, &dm_buf);
++	if (r < 0) {
++		gvt_err("Couldn't %s io_range 0x%llx ~ 0x%llx, vm_id:%d:%d\n",
++			map ? "map" : "unmap",
++			start, end, info->vm_id, r);
++	}
++	return r;
++}
++
++static int xen_hvm_map_pcidev_to_ioreq_server(struct xengt_hvm_dev *info,
++					uint64_t sbdf)
++{
++	xen_dm_op_buf_t dm_buf;
++	struct xen_dm_op op;
++	struct xen_dm_op_ioreq_server_range *data;
++	int r;
++
++	memset(&op, 0, sizeof(op));
++
++	op.op = XEN_DMOP_map_io_range_to_ioreq_server;
++	data = &op.u.map_io_range_to_ioreq_server;
++	data->id = info->iosrv_id;
++	data->type = XEN_DMOP_IO_RANGE_PCI;
++	data->start = data->end = sbdf;
++
++	dm_buf.h = &op;
++	dm_buf.size = sizeof(op);
++
++	r = HYPERVISOR_dm_op(info->vm_id, 1, &dm_buf);
++	if (r < 0)
++		gvt_err("Cannot map pci_dev to ioreq_server: %d!\n", r);
++
++	return r;
++}
++
++static int hvm_claim_ioreq_server_type(struct xengt_hvm_dev *info,
++		uint32_t set)
++{
++
++	xen_dm_op_buf_t dm_buf;
++	struct xen_dm_op op;
++	struct xen_dm_op_map_mem_type_to_ioreq_server *data;
++	int r;
++
++	memset(&op, 0, sizeof(op));
++
++	op.op = XEN_DMOP_map_mem_type_to_ioreq_server;
++	data = &op.u.map_mem_type_to_ioreq_server;
++	data->id = info->iosrv_id;
++	data->type = HVMMEM_ioreq_server;
++	data->flags = (set == 1) ? XEN_DMOP_IOREQ_MEM_ACCESS_WRITE : 0;
++
++	dm_buf.h = &op;
++	dm_buf.size = sizeof(op);
++
++	r = HYPERVISOR_dm_op(info->vm_id, 1, &dm_buf);
++	if (r < 0)
++		gvt_err("Cannot map mem type to ioreq_server\n");
++
++	return r;
++}
++
++static int xen_hvm_set_mem_type(domid_t vm_id, uint16_t mem_type,
++		uint64_t first_pfn, uint64_t nr)
++{
++	xen_dm_op_buf_t dm_buf;
++	struct xen_dm_op op;
++	struct xen_dm_op_set_mem_type *data;
++	int r;
++
++	memset(&op, 0, sizeof(op));
++
++	op.op = XEN_DMOP_set_mem_type;
++	data = &op.u.set_mem_type;
++
++	data->mem_type = mem_type;
++	data->first_pfn = first_pfn;
++	data->nr = nr;
++
++	dm_buf.h = &op;
++	dm_buf.size = sizeof(op);
++
++	r = HYPERVISOR_dm_op(vm_id, 1, &dm_buf);
++	if (r < 0) {
++		gvt_err("Cannot set mem type for 0x%llx ~ 0x%llx, memtype: %x\n",
++			first_pfn, first_pfn+nr, mem_type);
++	}
++	return r;
++}
++
++static int xen_hvm_wp_page_to_ioreq_server(struct xengt_hvm_dev *info,
++		unsigned long page, bool set)
++{
++	int rc = 0;
++	uint16_t mem_type;
++
++	mem_type = set ? HVMMEM_ioreq_server : HVMMEM_ram_rw;
++	rc = xen_hvm_set_mem_type(info->vm_id, mem_type, page, 1);
++	if (rc < 0) {
++		gvt_err("set mem type of page 0x%lx to %s fail - %d!\n", page,
++				set ? "HVMMEM_ioreq_server" : "HVMMEM_ram_rw", rc);
++	}
++
++	return rc;
++}
++
++static int xengt_map_gfn_to_mfn(unsigned long handle, unsigned long gfn,
++	unsigned long mfn, unsigned int nr, bool map)
++{
++	int rc;
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)handle;
++
++	if (!info)
++		return -EINVAL;
++
++	if (info->on_destroy)
++		return 0;
++
++	rc = xen_hvm_memory_mapping(info->vm_id, gfn, mfn, nr,
++			map ? DPCI_ADD_MAPPING : DPCI_REMOVE_MAPPING);
++	if (rc != 0)
++		gvt_err("xen_hvm_memory_mapping failed: %d\n", rc);
++	return rc;
++}
++
++static int xengt_set_trap_area(unsigned long handle, u64 start,
++							u64 end, bool map)
++{
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)handle;
++
++	if (!info)
++		return -EINVAL;
++
++	return xen_hvm_map_io_range_to_ioreq_server(info, 1, start, end, map);
++}
++
++static int xengt_page_track_add(unsigned long handle, u64 gfn)
++{
++	int r;
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)handle;
++
++	if (!info)
++		return -EINVAL;
++
++	if (info->on_destroy)
++		return 0;
++
++	r = xen_hvm_wp_page_to_ioreq_server(info, gfn, true);
++	if (r) {
++		gvt_err("fail to set write protection.\n");
++		return -EFAULT;
++	}
++
++	return 0;
++}
++
++static int xengt_page_track_remove(unsigned long handle, u64 gfn)
++{
++	int r;
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)handle;
++
++	if (!info)
++		return -EINVAL;
++
++	if (info->on_destroy)
++		return 0;
++
++	r = xen_hvm_wp_page_to_ioreq_server(info, gfn, false);
++	if (r) {
++		gvt_err("fail to clear write protection.\n");
++		return -EFAULT;
++	}
++
++	return 0;
++}
++
++static int xengt_hvm_vmem_init(struct intel_vgpu *vgpu)
++{
++	unsigned long i, j, gpfn, count;
++	unsigned long nr_low_1mb_bkt, nr_high_bkt, nr_high_4k_bkt;
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)vgpu->handle;
++
++	if (!info->vm_id)
++		return 0;
++
++	info->vmem_sz = xen_get_max_gpfn(info->vm_id);
++	info->vmem_sz <<= PAGE_SHIFT;
++
++	nr_low_1mb_bkt = VMEM_1MB >> PAGE_SHIFT;
++	nr_high_bkt = (info->vmem_sz >> VMEM_BUCK_SHIFT);
++	nr_high_4k_bkt = (info->vmem_sz >> PAGE_SHIFT);
++
++	info->vmem_vma_low_1mb =
++		vzalloc(sizeof(*info->vmem_vma) * nr_low_1mb_bkt);
++	info->vmem_vma =
++		vzalloc(sizeof(*info->vmem_vma) * nr_high_bkt);
++	info->vmem_vma_4k = /* TODO: really needs so big array for every page? */
++		vzalloc(sizeof(*info->vmem_vma) * nr_high_4k_bkt);
++
++	if (info->vmem_vma_low_1mb == NULL || info->vmem_vma == NULL ||
++		info->vmem_vma_4k == NULL) {
++		gvt_err("Insufficient memory for vmem_vma, vmem_sz=0x%llx\n",
++				info->vmem_sz);
++		goto err;
++	}
++
++	/* map the low 1MB memory */
++	for (i = 0; i < nr_low_1mb_bkt; i++) {
++		info->vmem_vma_low_1mb[i] =
++			xen_remap_domain_mfn_range_in_kernel(i, 1, info->vm_id);
++
++		if (info->vmem_vma_low_1mb[i] != NULL)
++			continue;
++
++		/* Don't warn on [0xa0000, 0x100000): a known non-RAM hole */
++		if (i < (0xa0000 >> PAGE_SHIFT))
++			gvt_err("VM%d: can't map GPFN %ld!\n", info->vm_id, i);
++	}
++
++	count = 0;
++	/* map the >1MB memory */
++	for (i = 1; i < nr_high_bkt; i++) {
++		gpfn = i << (VMEM_BUCK_SHIFT - PAGE_SHIFT);
++		info->vmem_vma[i] = xen_remap_domain_mfn_range_in_kernel(
++				gpfn, VMEM_BUCK_SIZE >> PAGE_SHIFT, info->vm_id);
++
++		if (info->vmem_vma[i] != NULL)
++			continue;
++
++		/* for <4G GPFNs: skip the hole after low_mem_max_gpfn */
++		if (gpfn < (1 << (32 - PAGE_SHIFT)) &&
++			vgpu->low_mem_max_gpfn != 0 &&
++			gpfn > vgpu->low_mem_max_gpfn)
++			continue;
++
++		for (j = gpfn;
++		     j < ((i + 1) << (VMEM_BUCK_SHIFT - PAGE_SHIFT));
++		     j++) {
++			info->vmem_vma_4k[j] =
++				xen_remap_domain_mfn_range_in_kernel(j, 1,
++						info->vm_id);
++
++			if (info->vmem_vma_4k[j]) {
++				count++;
++				gvt_dbg_mm("map 4k gpa (%lx)\n", j << PAGE_SHIFT);
++			}
++		}
++
++		/* To reduce the number of err messages(some of them, due to
++		 * the MMIO hole, are spurious and harmless) we only print a
++		 * message if it's at every 64MB boundary or >4GB memory.
++		 */
++		if (!info->vmem_vma_4k[gpfn] &&
++			((i % 64 == 0) || (i >= (1ULL << (32 - VMEM_BUCK_SHIFT)))))
++			gvt_dbg_mm("VM%d: can't map gpfn 0x%lx\n", info->vm_id, gpfn);
++	}
++
++	return 0;
++err:
++	vfree(info->vmem_vma);
++	vfree(info->vmem_vma_low_1mb);
++	vfree(info->vmem_vma_4k);
++	info->vmem_vma = info->vmem_vma_low_1mb = info->vmem_vma_4k = NULL;
++	return -ENOMEM;
++}
++
++static void xengt_vmem_destroy(struct intel_vgpu *vgpu)
++{
++	int i, j;
++	unsigned long nr_low_1mb_bkt, nr_high_bkt, nr_high_bkt_4k;
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)vgpu->handle;
++
++	if (!info || info->vm_id == 0)
++		return;
++
++	/*
++	 * Maybe the VM hasn't accessed GEN MMIO(e.g., still in the legacy VGA
++	 * mode), so no mapping is created yet.
++	 */
++	if (info->vmem_vma == NULL && info->vmem_vma_low_1mb == NULL)
++		return;
++
++	nr_low_1mb_bkt = VMEM_1MB >> PAGE_SHIFT;
++	nr_high_bkt = (info->vmem_sz >> VMEM_BUCK_SHIFT);
++	nr_high_bkt_4k = (info->vmem_sz >> PAGE_SHIFT);
++
++	for (i = 0; i < nr_low_1mb_bkt; i++) {
++		if (info->vmem_vma_low_1mb[i] == NULL)
++			continue;
++		xen_unmap_domain_mfn_range_in_kernel(info->vmem_vma_low_1mb[i],
++				1, info->vm_id);
++	}
++
++	for (i = 1; i < nr_high_bkt; i++) {
++		if (info->vmem_vma[i] == NULL) {
++			for (j = (i << (VMEM_BUCK_SHIFT - PAGE_SHIFT));
++			     j < ((i + 1) << (VMEM_BUCK_SHIFT - PAGE_SHIFT));
++			     j++) {
++				if (info->vmem_vma_4k[j] == NULL)
++					continue;
++				xen_unmap_domain_mfn_range_in_kernel(
++					info->vmem_vma_4k[j], 1, info->vm_id);
++			}
++			continue;
++		}
++		xen_unmap_domain_mfn_range_in_kernel(
++			info->vmem_vma[i], VMEM_BUCK_SIZE >> PAGE_SHIFT,
++			info->vm_id);
++	}
++
++	vfree(info->vmem_vma);
++	vfree(info->vmem_vma_low_1mb);
++	vfree(info->vmem_vma_4k);
++}
++
++static uint64_t intel_vgpu_get_bar0_addr(struct intel_vgpu *vgpu)
++{
++	u32 start_lo, start_hi;
++	u32 mem_type;
++	int pos = PCI_BASE_ADDRESS_0;
++
++	start_lo = (*(u32 *)(vgpu->cfg_space.virtual_cfg_space + pos)) &
++				PCI_BASE_ADDRESS_MEM_MASK;
++	mem_type = (*(u32 *)(vgpu->cfg_space.virtual_cfg_space + pos)) &
++				PCI_BASE_ADDRESS_MEM_TYPE_MASK;
++
++	switch (mem_type) {
++	case PCI_BASE_ADDRESS_MEM_TYPE_64:
++		start_hi = (*(u32 *)(vgpu->cfg_space.virtual_cfg_space
++					+ pos + 4));
++		break;
++	case PCI_BASE_ADDRESS_MEM_TYPE_32:
++	case PCI_BASE_ADDRESS_MEM_TYPE_1M:
++		/* 1M mem BAR treated as 32-bit BAR */
++	default:
++		/* mem unknown type treated as 32-bit BAR */
++		start_hi = 0;
++		break;
++	}
++
++	return ((u64)start_hi << 32) | start_lo;
++}
++
++static int xengt_hvm_write_handler(struct intel_vgpu *vgpu, uint64_t pa,
++				   void *p_data, unsigned int bytes)
++{
++
++	/* Check whether pa is ppgtt */
++	if (intel_gvt_ops->write_protect_handler(vgpu, pa, p_data, bytes) == 0)
++		return 0;
++
++	/* pa is mmio reg or gtt */
++	return intel_gvt_ops->emulate_mmio_write(vgpu, pa, p_data, bytes);
++}
++
++static int xengt_hvm_mmio_emulation(struct intel_vgpu *vgpu,
++		struct ioreq *req)
++{
++	int i, sign;
++	void *gva;
++	unsigned long gpa;
++	uint64_t base = intel_vgpu_get_bar0_addr(vgpu);
++	uint64_t tmp;
++	int pvinfo_page;
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)vgpu->handle;
++
++	if (info->vmem_vma == NULL) {
++		tmp = req->addr - base;
++		pvinfo_page = (tmp >= VGT_PVINFO_PAGE
++				&& tmp < (VGT_PVINFO_PAGE + VGT_PVINFO_SIZE));
++		/*
++		 * hvmloader will read PVINFO to identify if HVM is in VGT
++		 * or VTD. So we don't trigger HVM mapping logic here.
++		 */
++		if (!pvinfo_page && xengt_hvm_vmem_init(vgpu) < 0) {
++			gvt_err("can not map the memory of VM%d!!!\n",
++					info->vm_id);
++			return -EINVAL;
++		}
++	}
++
++	sign = req->df ? -1 : 1;
++
++	if (req->dir == IOREQ_READ) {
++		/* MMIO READ */
++		if (!req->data_is_ptr) {
++			if (req->count != 1)
++				goto err_ioreq_count;
++
++			if (intel_gvt_ops->emulate_mmio_read(vgpu, req->addr,
++						&req->data, req->size))
++				return -EINVAL;
++		} else {
++			for (i = 0; i < req->count; i++) {
++				if (intel_gvt_ops->emulate_mmio_read(vgpu,
++					req->addr + sign * i * req->size,
++					&tmp, req->size))
++					return -EINVAL;
++
++				gpa = req->data + sign * i * req->size;
++				gva = xengt_gpa_to_va((unsigned long)info, gpa);
++				if (!gva) {
++					gvt_err("vGT: can not read gpa = 0x%lx!!!\n", gpa);
++					return -EFAULT;
++				}
++				memcpy(gva, &tmp, req->size);
++			}
++		}
++	} else { /* MMIO Write */
++		if (!req->data_is_ptr) {
++			if (req->count != 1)
++				goto err_ioreq_count;
++			if (xengt_hvm_write_handler(vgpu, req->addr, &req->data,
++						    req->size))
++				return -EINVAL;
++		} else {
++			for (i = 0; i < req->count; i++) {
++				gpa = req->data + sign * i * req->size;
++				gva = xengt_gpa_to_va((unsigned long)info, gpa);
++				if (!gva) {
++					gvt_err("VM %d mmio access invalid gpa: 0x%lx.\n",
++						info->vm_id, gpa);
++					return -EFAULT;
++				}
++
++				memcpy(&tmp, gva, req->size);
++				if (xengt_hvm_write_handler(vgpu,
++					    req->addr + sign * i * req->size,
++					    &tmp, req->size))
++					return -EINVAL;
++			}
++		}
++	}
++
++	return 0;
++
++err_ioreq_count:
++	gvt_err("VM(%d): Unexpected %s request count(%d)\n",
++		info->vm_id, req->dir == IOREQ_READ ? "read" : "write",
++		req->count);
++	return -EINVAL;
++}
++
++static bool xengt_write_cfg_space(struct intel_vgpu *vgpu,
++	uint64_t addr, unsigned int bytes, unsigned long val)
++{
++	/* Low 32 bit of addr is real address, high 32 bit is bdf */
++	unsigned int port = addr & 0xffffffff;
++
++	if (port == PCI_VENDOR_ID) {
++		/* Low 20 bit of val are valid low mem gpfn. */
++		val &= 0xfffff;
++		vgpu->low_mem_max_gpfn = val;
++		return true;
++	}
++	if (intel_gvt_ops->emulate_cfg_write(vgpu, port, &val, bytes))
++		return false;
++	return true;
++}
++
++static bool xengt_read_cfg_space(struct intel_vgpu *vgpu,
++	uint64_t addr, unsigned int bytes, unsigned long *val)
++{
++	unsigned long data;
++	/* Low 32 bit of addr is real address, high 32 bit is bdf */
++	unsigned int port = addr & 0xffffffff;
++
++	if (intel_gvt_ops->emulate_cfg_read(vgpu, port, &data, bytes))
++		return false;
++	memcpy(val, &data, bytes);
++	return true;
++}
++
++static int xengt_hvm_pio_emulation(struct intel_vgpu *vgpu, struct ioreq *ioreq)
++{
++	int sign;
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)vgpu->handle;
++
++	sign = ioreq->df ? -1 : 1;
++
++	if (ioreq->dir == IOREQ_READ) {
++		/* PIO READ */
++		if (!ioreq->data_is_ptr) {
++			if (!xengt_read_cfg_space(vgpu,
++				ioreq->addr,
++				ioreq->size,
++				(unsigned long *)&ioreq->data))
++				return -EINVAL;
++		} else {
++			gvt_err("VGT: _hvm_pio_emulation read data_ptr %lx\n",
++					(long)ioreq->data);
++			goto err_data_ptr;
++		}
++	} else {
++		/* PIO WRITE */
++		if (!ioreq->data_is_ptr) {
++			if (!xengt_write_cfg_space(vgpu,
++				ioreq->addr,
++				ioreq->size,
++				(unsigned long)ioreq->data))
++				return -EINVAL;
++		} else {
++			gvt_err("VGT: _hvm_pio_emulation write data_ptr %lx\n",
++					(long)ioreq->data);
++			goto err_data_ptr;
++		}
++	}
++	return 0;
++err_data_ptr:
++	/* The data pointer of emulation is guest physical address
++	 * so far, which goes to Qemu emulation, but hard for
++	 * vGT driver which doesn't know gpn_2_mfn translation.
++	 * We may ask hypervisor to use mfn for vGT driver.
++	 * We mark it as unsupported in case guest really it.
++	 */
++	gvt_err("VM(%d): Unsupported %s data_ptr(%lx)\n",
++		info->vm_id, ioreq->dir == IOREQ_READ ? "read" : "write",
++		(long)ioreq->data);
++	return -EINVAL;
++}
++
++static int xengt_do_ioreq(struct intel_vgpu *vgpu, struct ioreq *ioreq)
++{
++	int rc = 0;
++
++	BUG_ON(ioreq->state != STATE_IOREQ_INPROCESS);
++
++	switch (ioreq->type) {
++	case IOREQ_TYPE_PCI_CONFIG:
++		rc = xengt_hvm_pio_emulation(vgpu, ioreq);
++		break;
++	case IOREQ_TYPE_COPY:   /* MMIO */
++		rc = xengt_hvm_mmio_emulation(vgpu, ioreq);
++		break;
++	case IOREQ_TYPE_INVALIDATE:
++	case IOREQ_TYPE_TIMEOFFSET:
++		break;
++	default:
++		gvt_err("Unknown ioreq type %x addr %llx size %u state %u\n",
++			ioreq->type, ioreq->addr, ioreq->size, ioreq->state);
++		rc = -EINVAL;
++		break;
++	}
++
++	wmb();
++
++	return rc;
++}
++
++static struct ioreq *xengt_get_hvm_ioreq(struct intel_vgpu *vgpu, int vcpu)
++{
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)vgpu->handle;
++	ioreq_t *req = &(info->iopage->vcpu_ioreq[vcpu]);
++
++	if (req->state != STATE_IOREQ_READY)
++		return NULL;
++
++	rmb();
++
++	req->state = STATE_IOREQ_INPROCESS;
++	return req;
++}
++
++static int xengt_emulation_thread(void *priv)
++{
++	struct intel_vgpu *vgpu = (struct intel_vgpu *)priv;
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)vgpu->handle;
++
++	int vcpu;
++	int nr_vcpus = info->nr_vcpu;
++
++	struct ioreq *ioreq;
++	int irq, ret;
++
++	gvt_dbg_core("start kthread for VM%d\n", info->vm_id);
++
++	set_freezable();
++	while (1) {
++		ret = wait_event_freezable(info->io_event_wq,
++			kthread_should_stop() ||
++			bitmap_weight(info->ioreq_pending, nr_vcpus));
++
++		if (kthread_should_stop())
++			return 0;
++
++		if (ret)
++			gvt_err("Emulation thread(%d) waken up"
++				 "by unexpected signal!\n", info->vm_id);
++
++		for (vcpu = 0; vcpu < nr_vcpus; vcpu++) {
++			if (!test_and_clear_bit(vcpu, info->ioreq_pending))
++				continue;
++
++			ioreq = xengt_get_hvm_ioreq(vgpu, vcpu);
++			if (ioreq == NULL)
++				continue;
++
++			if (xengt_do_ioreq(vgpu, ioreq)) {
++				xen_pause_domain(info->vm_id);
++				xen_shutdown_domain(info->vm_id);
++			}
++
++			ioreq->state = STATE_IORESP_READY;
++
++			irq = info->evtchn_irq[vcpu];
++			notify_remote_via_irq(irq);
++		}
++	}
++
++	BUG(); /* It's actually impossible to reach here */
++	return 0;
++}
++
++static inline void xengt_raise_emulation_request(struct intel_vgpu *vgpu,
++	int vcpu)
++{
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)vgpu->handle;
++
++	set_bit(vcpu, info->ioreq_pending);
++	wake_up(&info->io_event_wq);
++}
++
++static irqreturn_t xengt_io_req_handler(int irq, void *dev)
++{
++	struct intel_vgpu *vgpu;
++	struct xengt_hvm_dev *info;
++	int vcpu;
++
++	vgpu = (struct intel_vgpu *)dev;
++	info = (struct xengt_hvm_dev *)vgpu->handle;
++
++	for (vcpu = 0; vcpu < info->nr_vcpu; vcpu++) {
++		if (info->evtchn_irq[vcpu] == irq)
++			break;
++	}
++	if (vcpu == info->nr_vcpu) {
++		/*opps, irq is not the registered one*/
++		gvt_dbg_core("Received a IOREQ w/o vcpu target\n");
++		gvt_dbg_core("Possible a false request from event binding\n");
++		return IRQ_NONE;
++	}
++
++	xengt_raise_emulation_request(vgpu, vcpu);
++
++	return IRQ_HANDLED;
++}
++
++static void xengt_logd_destroy(struct xengt_hvm_dev *info)
++{
++	struct gvt_logd_pfn *logd;
++	struct rb_node *node = NULL;
++
++	mutex_lock(&info->logd_lock);
++	while ((node = rb_first(&info->logd_list))) {
++		logd = rb_entry(node, struct gvt_logd_pfn, node);
++		rb_erase(&logd->node, &info->logd_list);
++		kfree(logd);
++	}
++	mutex_unlock(&info->logd_lock);
++}
++
++void xengt_instance_destroy(struct intel_vgpu *vgpu)
++{
++	struct xengt_hvm_dev *info;
++	int vcpu;
++
++	intel_gvt_ops->vgpu_deactivate(vgpu);
++
++	info = (struct xengt_hvm_dev *)vgpu->handle;
++	if (info == NULL)
++		goto free_vgpu;
++
++	info->on_destroy = true;
++	if (info->emulation_thread != NULL)
++		kthread_stop(info->emulation_thread);
++
++	if (!info->nr_vcpu || info->evtchn_irq == NULL)
++		goto out1;
++
++	if (info->iosrv_enabled != 0) {
++		hvm_claim_ioreq_server_type(info, 0);
++		xen_hvm_toggle_iorequest_server(info, false);
++	}
++
++	if (info->iosrv_id != 0)
++		xen_hvm_destroy_iorequest_server(info);
++
++	for (vcpu = 0; vcpu < info->nr_vcpu; vcpu++) {
++		if (info->evtchn_irq[vcpu] >= 0)
++			unbind_from_irqhandler(info->evtchn_irq[vcpu], vgpu);
++	}
++
++	if (info->iopage_vma != NULL) {
++		xen_unmap_domain_mfn_range_in_kernel(info->iopage_vma, 1,
++				info->vm_id);
++		info->iopage_vma = NULL;
++	}
++
++	kfree(info->evtchn_irq);
++
++	if (info->dev_state)
++		vfree(info->dev_state);
++
++out1:
++	xengt_logd_destroy(info);
++	xengt_vmem_destroy(vgpu);
++	vgpu->handle = (unsigned long)NULL;
++	kfree(info);
++
++free_vgpu:
++	if (vgpu)
++		intel_gvt_ops->vgpu_destroy(vgpu);
++}
++
++struct intel_vgpu *xengt_instance_create(domid_t vm_id,
++		struct intel_vgpu_type *vgpu_type)
++{
++	struct xengt_hvm_dev *info;
++	struct intel_vgpu *vgpu;
++	int vcpu, irq, rc = 0;
++	struct task_struct *thread;
++
++	if (!intel_gvt_ops || !xengt_priv.gvt)
++		return NULL;
++
++	vgpu = intel_gvt_ops->vgpu_create(xengt_priv.gvt, vgpu_type);
++	if (IS_ERR(vgpu))
++		return NULL;
++	intel_gvt_ops->vgpu_activate(vgpu);
++	info = kzalloc(sizeof(struct xengt_hvm_dev), GFP_KERNEL);
++	if (info == NULL)
++		goto err;
++
++	info->vm_id = vm_id;
++	info->vgpu = vgpu;
++	vgpu->handle = (unsigned long)info;
++	info->iopage_vma = xen_hvm_map_iopage(info);
++	if (info->iopage_vma == NULL) {
++		gvt_err("Failed to map HVM I/O page for VM%d\n", vm_id);
++		rc = -EFAULT;
++		goto err;
++	}
++	info->iopage = info->iopage_vma->addr;
++	init_waitqueue_head(&info->io_event_wq);
++	info->nr_vcpu = xen_get_nr_vcpu(vm_id);
++	info->evtchn_irq = kmalloc(info->nr_vcpu * sizeof(int), GFP_KERNEL);
++	if (info->evtchn_irq == NULL) {
++		rc = -ENOMEM;
++		goto err;
++	}
++	for (vcpu = 0; vcpu < info->nr_vcpu; vcpu++)
++		info->evtchn_irq[vcpu] = -1;
++
++	info->dev_state = vzalloc(MIGRATION_IMG_MAX_SIZE);
++	if (info->dev_state == NULL) {
++		rc = -ENOMEM;
++		goto err;
++	}
++
++	rc = xen_hvm_map_pcidev_to_ioreq_server(info,
++			PCI_BDF2(0, 0x10));//FIXME hack the dev bdf
++	if (rc < 0)
++		goto err;
++
++	rc = hvm_claim_ioreq_server_type(info, 1);
++	if (rc < 0)
++		goto err;
++
++	rc = xen_hvm_toggle_iorequest_server(info, 1);
++	if (rc < 0)
++		goto err;
++
++	for (vcpu = 0; vcpu < info->nr_vcpu; vcpu++) {
++		irq = bind_interdomain_evtchn_to_irqhandler(vm_id,
++				info->iopage->vcpu_ioreq[vcpu].vp_eport,
++				xengt_io_req_handler, 0,
++				"xengt", vgpu);
++		if (irq < 0) {
++			rc = irq;
++			gvt_err("Failed to bind event channle: %d\n", rc);
++			goto err;
++		}
++		info->evtchn_irq[vcpu] = irq;
++	}
++
++	thread = kthread_run(xengt_emulation_thread, vgpu,
++			"xengt_emulation:%d", vm_id);
++	if (IS_ERR(thread))
++		goto err;
++	info->emulation_thread = thread;
++
++	return vgpu;
++
++err:
++	xengt_instance_destroy(vgpu);
++	return NULL;
++}
++
++static void *xengt_gpa_to_va(unsigned long handle, unsigned long gpa)
++{
++	unsigned long buck_index, buck_4k_index;
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)handle;
++
++	if (!info->vm_id)
++		return (char *)mfn_to_virt(gpa>>PAGE_SHIFT) +
++				(gpa & (PAGE_SIZE-1));
++
++	if (gpa > info->vmem_sz) {
++		if (info->vmem_sz == 0)
++			xengt_hvm_vmem_init(info->vgpu);
++		else {
++			gvt_err("vGT try to access invalid gpa=0x%lx\n", gpa);
++			return NULL;
++		}
++	}
++
++	/* handle the low 1MB memory */
++	if (gpa < VMEM_1MB) {
++		buck_index = gpa >> PAGE_SHIFT;
++		if (!info->vmem_vma_low_1mb[buck_index])
++			return NULL;
++
++		return (char *)(info->vmem_vma_low_1mb[buck_index]->addr) +
++			(gpa & ~PAGE_MASK);
++
++	}
++
++	/* handle the >1MB memory */
++	buck_index = gpa >> VMEM_BUCK_SHIFT;
++
++	if (!info->vmem_vma[buck_index]) {
++		buck_4k_index = gpa >> PAGE_SHIFT;
++		if (!info->vmem_vma_4k[buck_4k_index]) {
++			if (buck_4k_index > info->vgpu->low_mem_max_gpfn)
++				gvt_err("vGT failed to map gpa=0x%lx?\n", gpa);
++			return NULL;
++		}
++
++		return (char *)(info->vmem_vma_4k[buck_4k_index]->addr) +
++			(gpa & ~PAGE_MASK);
++	}
++
++	return (char *)(info->vmem_vma[buck_index]->addr) +
++		(gpa & (VMEM_BUCK_SIZE - 1));
++}
++
++static int xengt_host_init(struct device *dev, void *gvt, const void *ops)
++{
++	int ret = -EFAULT;
++
++	if (!gvt || !ops)
++		return -EINVAL;
++
++	xengt_priv.gvt = (struct intel_gvt *)gvt;
++	intel_gvt_ops = (const struct intel_gvt_ops *)ops;
++
++	ret = xengt_sysfs_init(xengt_priv.gvt);
++	if (ret) {
++		xengt_priv.gvt = NULL;
++		intel_gvt_ops = NULL;
++	}
++
++	return ret;
++}
++
++static void xengt_host_exit(struct device *dev, void *gvt)
++{
++	xengt_sysfs_del();
++	xengt_priv.gvt = NULL;
++	intel_gvt_ops = NULL;
++}
++
++static int xengt_attach_vgpu(void *vgpu, unsigned long *handle)
++{
++	/* nothing to do here */
++	return 0;
++}
++
++static void xengt_detach_vgpu(unsigned long handle)
++{
++	/* nothing to do here */
++}
++
++static int xengt_inject_msi(unsigned long handle, u32 addr_lo, u16 data)
++{
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)handle;
++	xen_dm_op_buf_t dm_buf;
++	struct xen_dm_op op;
++	struct xen_dm_op_inject_msi *arg;
++
++	memset(&op, 0, sizeof(op));
++
++	op.op = XEN_DMOP_inject_msi;
++	arg = &op.u.inject_msi;
++
++	arg->addr = (uint64_aligned_t)addr_lo;
++	arg->data = (uint32_t)data;
++
++	dm_buf.h = &op;
++	dm_buf.size = sizeof(op);
++
++	return HYPERVISOR_dm_op(info->vm_id, 1, &dm_buf);
++}
++
++static unsigned long xengt_virt_to_mfn(void *addr)
++{
++	return virt_to_mfn(addr);
++}
++
++static int xengt_read_gpa(unsigned long handle, unsigned long gpa,
++							void *buf, unsigned long len)
++{
++	void *va = NULL;
++
++	if (!handle)
++		return -EINVAL;
++
++	va = xengt_gpa_to_va(handle, gpa);
++	if (!va) {
++		gvt_err("GVT: can not read gpa = 0x%lx!!!\n", gpa);
++		return -EFAULT;
++	}
++	memcpy(buf, va, len);
++	return 0;
++}
++
++static int xengt_write_gpa(unsigned long handle, unsigned long gpa,
++							void *buf, unsigned long len)
++{
++	void *va = NULL;
++
++	if (!handle)
++		return -EINVAL;
++
++	va = xengt_gpa_to_va(handle, gpa);
++	if (!va) {
++		gvt_err("GVT: can not write gpa = 0x%lx!!!\n", gpa);
++		return -EFAULT;
++	}
++	memcpy(va, buf, len);
++	return 0;
++}
++
++static struct gvt_logd_pfn *xengt_find_logd(struct xengt_hvm_dev *info,
++							unsigned long gfn)
++{
++	struct gvt_logd_pfn *logd;
++	struct rb_node *node = info->logd_list.rb_node;
++
++	while (node) {
++		logd = rb_entry(node, struct gvt_logd_pfn, node);
++
++		if (gfn < logd->gfn)
++			node = node->rb_left;
++		else if (gfn > logd->gfn)
++			node = node->rb_right;
++		else
++			return logd;
++	}
++	return NULL;
++}
++
++static void xengt_logd_add(struct xengt_hvm_dev *info, unsigned long gfn)
++{
++	struct gvt_logd_pfn *logd, *itr;
++	struct rb_node **node = &info->logd_list.rb_node, *parent = NULL;
++
++	mutex_lock(&info->logd_lock);
++
++	logd = xengt_find_logd(info, gfn);
++	if (logd) {
++		atomic_inc(&logd->ref_count);
++		mutex_unlock(&info->logd_lock);
++		return;
++	}
++
++	logd = kzalloc(sizeof(struct gvt_logd_pfn), GFP_KERNEL);
++	if (!logd)
++		goto exit;
++
++	logd->gfn = gfn;
++	atomic_set(&logd->ref_count, 1);
++
++	while (*node) {
++		parent = *node;
++		itr = rb_entry(parent, struct gvt_logd_pfn, node);
++
++		if (logd->gfn < itr->gfn)
++			node = &parent->rb_left;
++		else
++			node = &parent->rb_right;
++	}
++	rb_link_node(&logd->node, parent, node);
++	rb_insert_color(&logd->node, &info->logd_list);
++
++exit:
++	mutex_unlock(&info->logd_lock);
++	return;
++}
++
++static unsigned long xengt_gfn_to_pfn(unsigned long handle, unsigned long gfn)
++{
++	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)handle;
++	unsigned long pfn;
++
++	if (!info)
++		return -EINVAL;
++
++	pfn = xen_g2m_pfn(info->vm_id, gfn);
++
++	if (pfn != INTEL_GVT_INVALID_ADDR)
++		xengt_logd_add(info, gfn);
++
++	return pfn;
++}
++
++static int xengt_dma_map_guest_page(unsigned long handle, unsigned long gfn,
++				    unsigned long size, dma_addr_t *dma_addr)
++{
++	unsigned long pfn;
++
++	pfn = xengt_gfn_to_pfn(handle, gfn);
++
++	if (pfn < 0)
++		return -EINVAL;
++
++	*dma_addr = pfn << PAGE_SHIFT;
++
++	return 0;
++}
++
++static void xengt_dma_unmap_guest_page(unsigned long handle,
++			dma_addr_t dma_addr)
++{
++}
++
++struct intel_gvt_mpt xengt_mpt = {
++	//.detect_host = xengt_detect_host,
++	.host_init = xengt_host_init,
++	.host_exit = xengt_host_exit,
++	.attach_vgpu = xengt_attach_vgpu,
++	.detach_vgpu = xengt_detach_vgpu,
++	.inject_msi = xengt_inject_msi,
++	.from_virt_to_mfn = xengt_virt_to_mfn,
++	.enable_page_track = xengt_page_track_add,
++	.disable_page_track = xengt_page_track_remove,
++	.read_gpa = xengt_read_gpa,
++	.write_gpa = xengt_write_gpa,
++	.gfn_to_mfn = xengt_gfn_to_pfn,
++	.dma_map_guest_page = xengt_dma_map_guest_page,
++	.dma_unmap_guest_page = xengt_dma_unmap_guest_page,
++	.map_gfn_to_mfn = xengt_map_gfn_to_mfn,
++	.set_trap_area = xengt_set_trap_area,
++};
++EXPORT_SYMBOL_GPL(xengt_mpt);
++
++static int __init xengt_init(void)
++{
++	if (!xen_initial_domain())
++		return -EINVAL;
++	return 0;
++}
++
++static void __exit xengt_exit(void)
++{
++	gvt_dbg_core("xengt: unloaded\n");
++}
++
++module_init(xengt_init);
++module_exit(xengt_exit);
+diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.h b/drivers/gpu/drm/i915/gvt/xengt.h
+--- a/drivers/gpu/drm/i915/gvt/xengt.h	1970-01-01 03:00:00.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/xengt.h	2019-10-29 16:07:52.270554111 +0300
+@@ -0,0 +1,91 @@
++#ifndef INTEL_GVT_XENGT_H
++#define INTEL_GVT_XENGT_H
++
++extern struct intel_gvt *gvt_instance;
++extern const struct intel_gvt_ops *intel_gvt_ops;
++
++#define PCI_BDF2(b, df)  ((((b) & 0xff) << 8) | ((df) & 0xff))
++
++#define MAX_HVM_VCPUS_SUPPORTED 127
++
++#define VMEM_1MB		(1ULL << 20)	/* the size of the first 1MB */
++#define VMEM_BUCK_SHIFT		20
++#define VMEM_BUCK_SIZE		(1ULL << VMEM_BUCK_SHIFT)
++#define VMEM_BUCK_MASK		(~(VMEM_BUCK_SIZE - 1))
++
++/*
++ * xengt_hvm_dev is a wrapper of a vGPU instance which is reprensented by the
++ * intel_vgpu structure. Under xen hypervisor, the xengt_instance stands for a
++ * HVM device, which the related resource.
++ */
++struct xengt_hvm_dev {
++	domid_t vm_id;
++	struct kobject kobj;
++	struct intel_vgpu *vgpu;
++	int on_destroy;
++
++	/* iopage_vma->addr is just iopage. We need iopage_vma on VM destroy */
++	shared_iopage_t *iopage;
++	struct vm_struct *iopage_vma;
++
++	/* the event channel irqs to handle HVM io request, index is vcpu id */
++	int nr_vcpu;
++	int *evtchn_irq;
++	ioservid_t iosrv_id;    /* io-request server id */
++	int iosrv_enabled;
++	struct task_struct *emulation_thread;
++	DECLARE_BITMAP(ioreq_pending, MAX_HVM_VCPUS_SUPPORTED);
++	wait_queue_head_t io_event_wq;
++
++	uint64_t vmem_sz;
++	/* for the 1st 1MB memory of HVM: each vm_struct means one 4K-page */
++	struct vm_struct **vmem_vma_low_1mb;
++	/* for >1MB memory of HVM: each vm_struct means 1MB */
++	struct vm_struct **vmem_vma;
++	/* for >1MB memory of HVM: each vm_struct means 4KB */
++	struct vm_struct **vmem_vma_4k;
++	void *dev_state;
++	struct rb_root logd_list;
++	struct mutex logd_lock;
++};
++
++struct xengt_hvm_params {
++	int vm_id;
++	int aperture_sz; /* in MB */
++	int gm_sz;  /* in MB */
++	int fence_sz;
++	int cap;
++	/*
++	 * 0/1: config the vgt device as secondary/primary VGA,
++	 * -1: means the ioemu doesn't supply a value
++	 */
++	int gvt_primary;
++};
++
++/*
++ * struct gvt_xengt should be a single instance to share global
++ * information for XENGT module.
++ */
++#define GVT_MAX_VGPU_INSTANCE 15
++struct xengt_struct {
++	struct intel_gvt *gvt;
++	struct intel_vgpu *vgpus[GVT_MAX_VGPU_INSTANCE];
++};
++
++static void *xengt_gpa_to_va(unsigned long handle, unsigned long gpa);
++static ssize_t xengt_sysfs_instance_manage(struct kobject *kobj,
++	struct kobj_attribute *attr, const char *buf, size_t count);
++static ssize_t xengt_sysfs_vgpu_id(struct kobject *kobj,
++	struct kobj_attribute *attr, char *buf);
++static ssize_t xengt_sysfs_vgpu_schedule(struct kobject *kobj,
++	struct kobj_attribute *attr, const char *buf, size_t count);
++
++struct intel_vgpu *xengt_instance_create(domid_t vm_id,
++		struct intel_vgpu_type *type);
++void xengt_instance_destroy(struct intel_vgpu *vgpu);
++static int hvm_claim_ioreq_server_type(struct xengt_hvm_dev *info,
++		uint32_t set);
++static int xen_hvm_toggle_iorequest_server(struct xengt_hvm_dev *info, bool enable);
++
++
++#endif
+diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/hvm/dm_op.h b/include/xen/interface/hvm/dm_op.h
+--- a/include/xen/interface/hvm/dm_op.h	2019-10-17 23:45:44.000000000 +0300
++++ b/include/xen/interface/hvm/dm_op.h	2019-10-29 16:07:52.271554114 +0300
+@@ -18,15 +18,395 @@
+  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  * DEALINGS IN THE SOFTWARE.
++ *
+  */
+ 
+ #ifndef __XEN_PUBLIC_HVM_DM_OP_H__
+ #define __XEN_PUBLIC_HVM_DM_OP_H__
+ 
++#include "../xen.h"
++
++#include "../event_channel.h"
++
++#ifndef uint64_aligned_t
++#define uint64_aligned_t uint64_t
++#endif
++
++/*
++ * IOREQ Servers
++ *
++ * The interface between an I/O emulator an Xen is called an IOREQ Server.
++ * A domain supports a single 'legacy' IOREQ Server which is instantiated if
++ * parameter...
++ *
++ * HVM_PARAM_IOREQ_PFN is read (to get the gmfn containing the synchronous
++ * ioreq structures), or...
++ * HVM_PARAM_BUFIOREQ_PFN is read (to get the gmfn containing the buffered
++ * ioreq ring), or...
++ * HVM_PARAM_BUFIOREQ_EVTCHN is read (to get the event channel that Xen uses
++ * to request buffered I/O emulation).
++ *
++ * The following hypercalls facilitate the creation of IOREQ Servers for
++ * 'secondary' emulators which are invoked to implement port I/O, memory, or
++ * PCI config space ranges which they explicitly register.
++ */
++
++typedef uint16_t ioservid_t;
++
++/*
++ * XEN_DMOP_create_ioreq_server: Instantiate a new IOREQ Server for a
++ *                               secondary emulator.
++ *
++ * The <id> handed back is unique for target domain. The valur of
++ * <handle_bufioreq> should be one of HVM_IOREQSRV_BUFIOREQ_* defined in
++ * hvm_op.h. If the value is HVM_IOREQSRV_BUFIOREQ_OFF then  the buffered
++ * ioreq ring will not be allocated and hence all emulation requests to
++ * this server will be synchronous.
++ */
++#define XEN_DMOP_create_ioreq_server 1
++
++struct xen_dm_op_create_ioreq_server {
++	/* IN - should server handle buffered ioreqs */
++	uint8_t handle_bufioreq;
++	uint8_t pad[3];
++	/* OUT - server id */
++	ioservid_t id;
++};
++
++/*
++ * XEN_DMOP_get_ioreq_server_info: Get all the information necessary to
++ *                                 access IOREQ Server <id>.
++ *
++ * The emulator needs to map the synchronous ioreq structures and buffered
++ * ioreq ring (if it exists) that Xen uses to request emulation. These are
++ * hosted in the target domain's gmfns <ioreq_pfn> and <bufioreq_pfn>
++ * respectively. In addition, if the IOREQ Server is handling buffered
++ * emulation requests, the emulator needs to bind to event channel
++ * <bufioreq_port> to listen for them. (The event channels used for
++ * synchronous emulation requests are specified in the per-CPU ioreq
++ * structures in <ioreq_pfn>).
++ * If the IOREQ Server is not handling buffered emulation requests then the
++ * values handed back in <bufioreq_pfn> and <bufioreq_port> will both be 0.
++ */
++#define XEN_DMOP_get_ioreq_server_info 2
++
++struct xen_dm_op_get_ioreq_server_info {
++	/* IN - server id */
++	ioservid_t id;
++	uint16_t pad;
++	/* OUT - buffered ioreq port */
++	evtchn_port_t bufioreq_port;
++	/* OUT - sync ioreq pfn */
++	uint64_aligned_t ioreq_pfn;
++	/* OUT - buffered ioreq pfn */
++	uint64_aligned_t bufioreq_pfn;
++};
++
++/*
++ * XEN_DMOP_map_io_range_to_ioreq_server: Register an I/O range for
++ *                                        emulation by the client of
++ *                                        IOREQ Server <id>.
++ * XEN_DMOP_unmap_io_range_from_ioreq_server: Deregister an I/O range
++ *                                            previously registered for
++ *                                            emulation by the client of
++ *                                            IOREQ Server <id>.
++ *
++ * There are three types of I/O that can be emulated: port I/O, memory
++ * accesses and PCI config space accesses. The <type> field denotes which
++ * type of range* the <start> and <end> (inclusive) fields are specifying.
++ * PCI config space ranges are specified by segment/bus/device/function
++ * values which should be encoded using the DMOP_PCI_SBDF helper macro
++ * below.
++ *
++ * NOTE: unless an emulation request falls entirely within a range mapped
++ * by a secondary emulator, it will not be passed to that emulator.
++ */
++#define XEN_DMOP_map_io_range_to_ioreq_server 3
++#define XEN_DMOP_unmap_io_range_from_ioreq_server 4
++
++struct xen_dm_op_ioreq_server_range {
++	/* IN - server id */
++	ioservid_t id;
++	uint16_t pad;
++	/* IN - type of range */
++	uint32_t type;
++# define XEN_DMOP_IO_RANGE_PORT   0 /* I/O port range */
++# define XEN_DMOP_IO_RANGE_MEMORY 1 /* MMIO range */
++# define XEN_DMOP_IO_RANGE_PCI    2 /* PCI segment/bus/dev/func range */
++	/* IN - inclusive start and end of range */
++	uint64_aligned_t start, end;
++};
++
++#define XEN_DMOP_PCI_SBDF(s, b, d, f) \
++	((((s) & 0xffff) << 16) |  \
++	 (((b) & 0xff) << 8) |     \
++	 (((d) & 0x1f) << 3) |     \
++	 ((f) & 0x07))
++
++/*
++ * XEN_DMOP_set_ioreq_server_state: Enable or disable the IOREQ Server <id>
++ *
++ * The IOREQ Server will not be passed any emulation requests until it is
++ * in the enabled state.
++ * Note that the contents of the ioreq_pfn and bufioreq_fn (see
++ * XEN_DMOP_get_ioreq_server_info) are not meaningful until the IOREQ Server
++ * is in the enabled state.
++ */
++#define XEN_DMOP_set_ioreq_server_state 5
++
++struct xen_dm_op_set_ioreq_server_state {
++	/* IN - server id */
++	ioservid_t id;
++	/* IN - enabled? */
++	uint8_t enabled;
++	uint8_t pad;
++};
++
++/*
++ * XEN_DMOP_destroy_ioreq_server: Destroy the IOREQ Server <id>.
++ *
++ * Any registered I/O ranges will be automatically deregistered.
++ */
++#define XEN_DMOP_destroy_ioreq_server 6
++
++struct xen_dm_op_destroy_ioreq_server {
++	/* IN - server id */
++	ioservid_t id;
++	uint16_t pad;
++};
++
++/*
++ * XEN_DMOP_track_dirty_vram: Track modifications to the specified pfn
++ *                            range.
++ *
++ * NOTE: The bitmap passed back to the caller is passed in a
++ *       secondary buffer.
++ */
++#define XEN_DMOP_track_dirty_vram 7
++
++struct xen_dm_op_track_dirty_vram {
++	/* IN - number of pages to be tracked */
++	uint32_t nr;
++	uint32_t pad;
++	/* IN - first pfn to track */
++	uint64_aligned_t first_pfn;
++};
++
++/*
++ * XEN_DMOP_set_pci_intx_level: Set the logical level of one of a domain's
++ *                              PCI INTx pins.
++ */
++#define XEN_DMOP_set_pci_intx_level 8
++
++struct xen_dm_op_set_pci_intx_level {
++	/* IN - PCI INTx identification (domain:bus:device:intx) */
++	uint16_t domain;
++	uint8_t bus, device, intx;
++	/* IN - Level: 0 -> deasserted, 1 -> asserted */
++	uint8_t  level;
++};
++
++/*
++ * XEN_DMOP_set_isa_irq_level: Set the logical level of a one of a domain's
++ *                             ISA IRQ lines.
++ */
++#define XEN_DMOP_set_isa_irq_level 9
++
++struct xen_dm_op_set_isa_irq_level {
++	/* IN - ISA IRQ (0-15) */
++	uint8_t  isa_irq;
++	/* IN - Level: 0 -> deasserted, 1 -> asserted */
++	uint8_t  level;
++};
++
++/*
++ * XEN_DMOP_set_pci_link_route: Map a PCI INTx line to an IRQ line.
++ */
++#define XEN_DMOP_set_pci_link_route 10
++
++struct xen_dm_op_set_pci_link_route {
++	/* PCI INTx line (0-3) */
++	uint8_t  link;
++	/* ISA IRQ (1-15) or 0 -> disable link */
++	uint8_t  isa_irq;
++};
++
++/*
++ * XEN_DMOP_modified_memory: Notify that a set of pages were modified by
++ *                           an emulator.
++ *
++ * DMOP buf 1 contains an array of xen_dm_op_modified_memory_extent with
++ * @nr_extents entries.
++ *
++ * On error, @nr_extents will contain the index+1 of the extent that
++ * had the error.  It is not defined if or which pages may have been
++ * marked as dirty, in this event.
++ */
++#define XEN_DMOP_modified_memory 11
++
++struct xen_dm_op_modified_memory {
++    /*
++     * IN - Number of extents to be processed
++     * OUT -returns n+1 for failing extent
++     */
++    uint32_t nr_extents;
++    /* IN/OUT - Must be set to 0 */
++    uint32_t opaque;
++};
++
++struct xen_dm_op_modified_memory_extent {
++    /* IN - number of contiguous pages modified */
++    uint32_t nr;
++    uint32_t pad;
++    /* IN - first pfn modified */
++    uint64_aligned_t first_pfn;
++};
++
++/*
++ * XEN_DMOP_set_mem_type: Notify that a region of memory is to be treated
++ *                        in a specific way. (See definition of
++ *                        hvmmem_type_t).
++ *
++ * NOTE: In the event of a continuation (return code -ERESTART), the
++ *       @first_pfn is set to the value of the pfn of the remaining
++ *       region and @nr reduced to the size of the remaining region.
++ */
++#define XEN_DMOP_set_mem_type 12
++
++struct xen_dm_op_set_mem_type {
++	/* IN - number of contiguous pages */
++	uint32_t nr;
++	/* IN - new hvmmem_type_t of region */
++	uint16_t mem_type;
++	uint16_t pad;
++	/* IN - first pfn in region */
++	uint64_aligned_t first_pfn;
++};
++
++/*
++ * XEN_DMOP_inject_event: Inject an event into a VCPU, which will
++ *                        get taken up when it is next scheduled.
++ *
++ * Note that the caller should know enough of the state of the CPU before
++ * injecting, to know what the effect of injecting the event will be.
++ */
++#define XEN_DMOP_inject_event 13
++
++struct xen_dm_op_inject_event {
++	/* IN - index of vCPU */
++	uint32_t vcpuid;
++	/* IN - interrupt vector */
++	uint8_t vector;
++	/* IN - event type (DMOP_EVENT_* ) */
++	uint8_t type;
++/* NB. This enumeration precisely matches hvm.h:X86_EVENTTYPE_* */
++# define XEN_DMOP_EVENT_ext_int    0 /* external interrupt */
++# define XEN_DMOP_EVENT_nmi        2 /* nmi */
++# define XEN_DMOP_EVENT_hw_exc     3 /* hardware exception */
++# define XEN_DMOP_EVENT_sw_int     4 /* software interrupt (CD nn) */
++# define XEN_DMOP_EVENT_pri_sw_exc 5 /* ICEBP (F1) */
++# define XEN_DMOP_EVENT_sw_exc     6 /* INT3 (CC), INTO (CE) */
++	/* IN - instruction length */
++	uint8_t insn_len;
++	uint8_t pad0;
++	/* IN - error code (or ~0 to skip) */
++	uint32_t error_code;
++	uint32_t pad1;
++	/* IN - CR2 for page faults */
++	uint64_aligned_t cr2;
++};
++
++/*
++ * XEN_DMOP_inject_msi: Inject an MSI for an emulated device.
++ */
++#define XEN_DMOP_inject_msi 14
++
++struct xen_dm_op_inject_msi {
++	/* IN - MSI data (lower 32 bits) */
++	uint32_t data;
++	uint32_t pad;
++	/* IN - MSI address (0xfeexxxxx) */
++	uint64_aligned_t addr;
++};
++
++/*
++ * XEN_DMOP_map_mem_type_to_ioreq_server : map or unmap the IOREQ Server <id>
++ *                                      to specific memory type <type>
++ *                                      for specific accesses <flags>
++ *
++ * For now, flags only accept the value of XEN_DMOP_IOREQ_MEM_ACCESS_WRITE,
++ * which means only write operations are to be forwarded to an ioreq server.
++ * Support for the emulation of read operations can be added when an ioreq
++ * server has such requirement in future.
++ */
++#define XEN_DMOP_map_mem_type_to_ioreq_server 15
++
++struct xen_dm_op_map_mem_type_to_ioreq_server {
++	ioservid_t id;      /* IN - ioreq server id */
++	uint16_t type;      /* IN - memory type */
++	uint32_t flags;     /* IN - types of accesses to be forwarded to the
++			       ioreq server. flags with 0 means to unmap the
++			       ioreq server */
++
++#define XEN_DMOP_IOREQ_MEM_ACCESS_READ (1u << 0)
++#define XEN_DMOP_IOREQ_MEM_ACCESS_WRITE (1u << 1)
++	uint64_t opaque;    /* IN/OUT - only used for hypercall continuation,
++			       has to be set to zero by the caller */
++};
++
++struct xen_dm_op {
++	uint32_t op;
++	uint32_t pad;
++	union {
++		struct xen_dm_op_create_ioreq_server create_ioreq_server;
++		struct xen_dm_op_get_ioreq_server_info get_ioreq_server_info;
++		struct xen_dm_op_ioreq_server_range map_io_range_to_ioreq_server;
++		struct xen_dm_op_ioreq_server_range unmap_io_range_from_ioreq_server;
++		struct xen_dm_op_set_ioreq_server_state set_ioreq_server_state;
++		struct xen_dm_op_destroy_ioreq_server destroy_ioreq_server;
++		struct xen_dm_op_track_dirty_vram track_dirty_vram;
++		struct xen_dm_op_set_pci_intx_level set_pci_intx_level;
++		struct xen_dm_op_set_isa_irq_level set_isa_irq_level;
++		struct xen_dm_op_set_pci_link_route set_pci_link_route;
++		struct xen_dm_op_modified_memory modified_memory;
++		struct xen_dm_op_set_mem_type set_mem_type;
++		struct xen_dm_op_inject_event inject_event;
++		struct xen_dm_op_inject_msi inject_msi;
++		struct xen_dm_op_map_mem_type_to_ioreq_server
++			map_mem_type_to_ioreq_server;
++	} u;
++};
++
+ struct xen_dm_op_buf {
+ 	GUEST_HANDLE(void) h;
+ 	xen_ulong_t size;
+ };
+-DEFINE_GUEST_HANDLE_STRUCT(xen_dm_op_buf);
++typedef struct xen_dm_op_buf xen_dm_op_buf_t;
++DEFINE_GUEST_HANDLE_STRUCT(xen_dm_op_buf_t);
++
++/* ` enum neg_errnoval
++ * ` HYPERVISOR_dm_op(domid_t domid,
++ * `                  unsigned int nr_bufs,
++ * `                  xen_dm_op_buf_t bufs[])
++ * `
++ *
++ * @domid is the domain the hypercall operates on.
++ * @nr_bufs is the number of buffers in the @bufs array.
++ * @bufs points to an array of buffers where @bufs[0] contains a struct
++ * xen_dm_op, describing the specific device model operation and its
++ * parameters.
++ * @bufs[1..] may be referenced in the parameters for the purposes of
++ * passing extra information to or from the domain.
++ */
+ 
+ #endif /* __XEN_PUBLIC_HVM_DM_OP_H__ */
++
++/*
++ * Local variables:
++ * mode: C
++ * c-file-style: "BSD"
++ * c-basic-offset: 4
++ * tab-width: 4
++ * indent-tabs-mode: nil
++ * End:
++ */
+diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/hvm/hvm_op.h b/include/xen/interface/hvm/hvm_op.h
+--- a/include/xen/interface/hvm/hvm_op.h	2019-10-17 23:45:44.000000000 +0300
++++ b/include/xen/interface/hvm/hvm_op.h	2019-10-29 16:07:52.272554116 +0300
+@@ -16,50 +16,235 @@
+  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  * DEALINGS IN THE SOFTWARE.
++ *
++ * Copyright (c) 2007, Keir Fraser
+  */
+ 
+ #ifndef __XEN_PUBLIC_HVM_HVM_OP_H__
+ #define __XEN_PUBLIC_HVM_HVM_OP_H__
+ 
+-/* Get/set subcommands: the second argument of the hypercall is a
+- * pointer to a xen_hvm_param struct. */
++#include "../xen.h"
++//#include "../trace.h"
++#include "../event_channel.h"
++
++/* Get/set subcommands: extra argument == pointer to xen_hvm_param struct. */
+ #define HVMOP_set_param           0
+ #define HVMOP_get_param           1
+ struct xen_hvm_param {
+-    domid_t  domid;    /* IN */
+-    uint32_t index;    /* IN */
+-    uint64_t value;    /* IN/OUT */
++	domid_t  domid;    /* IN */
++	uint32_t index;    /* IN */
++	uint64_t value;    /* IN/OUT */
+ };
+-DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_param);
++typedef struct xen_hvm_param xen_hvm_param_t;
++DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_param_t);
++
++/* Flushes all VCPU TLBs: @arg must be NULL. */
++#define HVMOP_flush_tlbs          5
++
++typedef enum {
++	HVMMEM_ram_rw,             /* Normal read/write guest RAM */
++	HVMMEM_ram_ro,             /* Read-only; writes are discarded */
++	HVMMEM_mmio_dm,            /* Reads and write go to the device model */
++	HVMMEM_unused,             /* Placeholder; setting memory to this type
++				      will fail for code after 4.7.0 */
++	HVMMEM_ioreq_server        /* Memory type claimed by an ioreq server; type
++				      changes to this value are only allowed after
++				      an ioreq server has claimed its ownership.
++				      Only pages with HVMMEM_ram_rw are allowed to
++				      change to this type; conversely, pages with
++				      this type are only allowed to be changed back
++				      to HVMMEM_ram_rw. */
++} hvmmem_type_t;
+ 
+ /* Hint from PV drivers for pagetable destruction. */
+-#define HVMOP_pagetable_dying       9
++#define HVMOP_pagetable_dying        9
+ struct xen_hvm_pagetable_dying {
+-    /* Domain with a pagetable about to be destroyed. */
+-    domid_t  domid;
+-    /* guest physical address of the toplevel pagetable dying */
+-    aligned_u64 gpa;
++	/* Domain with a pagetable about to be destroyed. */
++	domid_t  domid;
++	uint16_t pad[3]; /* align next field on 8-byte boundary */
++	/* guest physical address of the toplevel pagetable dying */
++	uint64_t gpa;
+ };
+ typedef struct xen_hvm_pagetable_dying xen_hvm_pagetable_dying_t;
+ DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_pagetable_dying_t);
+- 
+-enum hvmmem_type_t {
+-    HVMMEM_ram_rw,             /* Normal read/write guest RAM */
+-    HVMMEM_ram_ro,             /* Read-only; writes are discarded */
+-    HVMMEM_mmio_dm,            /* Reads and write go to the device model */
++
++/* Get the current Xen time, in nanoseconds since system boot. */
++#define HVMOP_get_time              10
++struct xen_hvm_get_time {
++	uint64_t now;      /* OUT */
+ };
++typedef struct xen_hvm_get_time xen_hvm_get_time_t;
++DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_get_time_t);
++
++//#define HVMOP_xentrace              11
++//struct xen_hvm_xentrace {
++//    uint16_t event, extra_bytes;
++//    uint8_t extra[TRACE_EXTRA_MAX * sizeof(uint32_t)];
++//};
++//typedef struct xen_hvm_xentrace xen_hvm_xentrace_t;
++//DEFINE_XEN_GUEST_HANDLE(xen_hvm_xentrace_t);
++
++/* Following tools-only interfaces may change in future. */
++#if defined(__XEN__) || defined(__XEN_TOOLS__)
++
++/* Deprecated by XENMEM_access_op_set_access */
++#define HVMOP_set_mem_access        12
++
++/* Deprecated by XENMEM_access_op_get_access */
++#define HVMOP_get_mem_access        13
++
++#endif /* defined(__XEN__) || defined(__XEN_TOOLS__) */
+ 
+ #define HVMOP_get_mem_type    15
+ /* Return hvmmem_type_t for the specified pfn. */
+ struct xen_hvm_get_mem_type {
+-    /* Domain to be queried. */
+-    domid_t domid;
+-    /* OUT variable. */
+-    uint16_t mem_type;
+-    uint16_t pad[2]; /* align next field on 8-byte boundary */
+-    /* IN variable. */
+-    uint64_t pfn;
++	/* Domain to be queried. */
++	domid_t domid;
++	/* OUT variable. */
++	uint16_t mem_type;
++	uint16_t pad[2]; /* align next field on 8-byte boundary */
++	/* IN variable. */
++	uint64_t pfn;
++};
++typedef struct xen_hvm_get_mem_type xen_hvm_get_mem_type_t;
++DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_get_mem_type_t);
++
++/* Following tools-only interfaces may change in future. */
++#if defined(__XEN__) || defined(__XEN_TOOLS__)
++
++/*
++ * Definitions relating to DMOP_create_ioreq_server. (Defined here for
++ * backwards compatibility).
++ */
++
++#define HVM_IOREQSRV_BUFIOREQ_OFF    0
++#define HVM_IOREQSRV_BUFIOREQ_LEGACY 1
++/*
++ * Use this when read_pointer gets updated atomically and
++ * the pointer pair gets read atomically:
++ */
++#define HVM_IOREQSRV_BUFIOREQ_ATOMIC 2
++
++#endif /* defined(__XEN__) || defined(__XEN_TOOLS__) */
++
++#if defined(__i386__) || defined(__x86_64__)
++
++/*
++ * HVMOP_set_evtchn_upcall_vector: Set a <vector> that should be used for event
++ *                                 channel upcalls on the specified <vcpu>. If set,
++ *                                 this vector will be used in preference to the
++ *                                 domain global callback via (see
++ *                                 HVM_PARAM_CALLBACK_IRQ).
++ */
++#define HVMOP_set_evtchn_upcall_vector 23
++struct xen_hvm_evtchn_upcall_vector {
++	uint32_t vcpu;
++	uint8_t vector;
+ };
+-DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_get_mem_type);
++typedef struct xen_hvm_evtchn_upcall_vector xen_hvm_evtchn_upcall_vector_t;
++DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_evtchn_upcall_vector_t);
++
++#endif /* defined(__i386__) || defined(__x86_64__) */
++
++#define HVMOP_guest_request_vm_event 24
++
++/* HVMOP_altp2m: perform altp2m state operations */
++#define HVMOP_altp2m 25
++
++#define HVMOP_ALTP2M_INTERFACE_VERSION 0x00000001
++
++struct xen_hvm_altp2m_domain_state {
++	/* IN or OUT variable on/off */
++	uint8_t state;
++};
++typedef struct xen_hvm_altp2m_domain_state xen_hvm_altp2m_domain_state_t;
++DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_altp2m_domain_state_t);
++
++struct xen_hvm_altp2m_vcpu_enable_notify {
++	uint32_t vcpu_id;
++	uint32_t pad;
++	/* #VE info area gfn */
++	uint64_t gfn;
++};
++typedef struct xen_hvm_altp2m_vcpu_enable_notify xen_hvm_altp2m_vcpu_enable_notify_t;
++DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_altp2m_vcpu_enable_notify_t);
++
++struct xen_hvm_altp2m_view {
++	/* IN/OUT variable */
++	uint16_t view;
++	/* Create view only: default access type
++	 * NOTE: currently ignored */
++	uint16_t hvmmem_default_access; /* xenmem_access_t */
++};
++typedef struct xen_hvm_altp2m_view xen_hvm_altp2m_view_t;
++DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_altp2m_view_t);
++
++struct xen_hvm_altp2m_set_mem_access {
++	/* view */
++	uint16_t view;
++	/* Memory type */
++	uint16_t hvmmem_access; /* xenmem_access_t */
++	uint32_t pad;
++	/* gfn */
++	uint64_t gfn;
++};
++typedef struct xen_hvm_altp2m_set_mem_access xen_hvm_altp2m_set_mem_access_t;
++DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_altp2m_set_mem_access_t);
++
++struct xen_hvm_altp2m_change_gfn {
++	/* view */
++	uint16_t view;
++	uint16_t pad1;
++	uint32_t pad2;
++	/* old gfn */
++	uint64_t old_gfn;
++	/* new gfn, INVALID_GFN (~0UL) means revert */
++	uint64_t new_gfn;
++};
++typedef struct xen_hvm_altp2m_change_gfn xen_hvm_altp2m_change_gfn_t;
++DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_altp2m_change_gfn_t);
++
++struct xen_hvm_altp2m_op {
++	uint32_t version;   /* HVMOP_ALTP2M_INTERFACE_VERSION */
++	uint32_t cmd;
++/* Get/set the altp2m state for a domain */
++#define HVMOP_altp2m_get_domain_state     1
++#define HVMOP_altp2m_set_domain_state     2
++/* Set the current VCPU to receive altp2m event notifications */
++#define HVMOP_altp2m_vcpu_enable_notify   3
++/* Create a new view */
++#define HVMOP_altp2m_create_p2m           4
++/* Destroy a view */
++#define HVMOP_altp2m_destroy_p2m          5
++/* Switch view for an entire domain */
++#define HVMOP_altp2m_switch_p2m           6
++/* Notify that a page of memory is to have specific access types */
++#define HVMOP_altp2m_set_mem_access       7
++/* Change a p2m entry to have a different gfn->mfn mapping */
++#define HVMOP_altp2m_change_gfn           8
++	domid_t domain;
++	uint16_t pad1;
++	uint32_t pad2;
++	union {
++		struct xen_hvm_altp2m_domain_state       domain_state;
++		struct xen_hvm_altp2m_vcpu_enable_notify enable_notify;
++		struct xen_hvm_altp2m_view               view;
++		struct xen_hvm_altp2m_set_mem_access     set_mem_access;
++		struct xen_hvm_altp2m_change_gfn         change_gfn;
++		uint8_t pad[64];
++    } u;
++};
++typedef struct xen_hvm_altp2m_op xen_hvm_altp2m_op_t;
++DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_altp2m_op_t);
+ 
+ #endif /* __XEN_PUBLIC_HVM_HVM_OP_H__ */
++
++/*
++ * Local variables:
++ * mode: C
++ * c-file-style: "BSD"
++ * c-basic-offset: 4
++ * tab-width: 4
++ * indent-tabs-mode: nil
++ * End:
++ */
+diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/hvm/ioreq.h b/include/xen/interface/hvm/ioreq.h
+--- a/include/xen/interface/hvm/ioreq.h	1970-01-01 03:00:00.000000000 +0300
++++ b/include/xen/interface/hvm/ioreq.h	2019-10-29 16:07:52.272554116 +0300
+@@ -0,0 +1,138 @@
++/*
++ * ioreq.h: I/O request definitions for device models
++ * Copyright (c) 2004, Intel Corporation.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the "Software"), to
++ * deal in the Software without restriction, including without limitation the
++ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
++ * sell copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in
++ * all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++ * DEALINGS IN THE SOFTWARE.
++ */
++
++#ifndef _IOREQ_H_
++#define _IOREQ_H_
++
++#define IOREQ_READ      1
++#define IOREQ_WRITE     0
++
++#define STATE_IOREQ_NONE        0
++#define STATE_IOREQ_READY       1
++#define STATE_IOREQ_INPROCESS   2
++#define STATE_IORESP_READY      3
++
++#define IOREQ_TYPE_PIO          0 /* pio */
++#define IOREQ_TYPE_COPY         1 /* mmio ops */
++#define IOREQ_TYPE_PCI_CONFIG   2
++#define IOREQ_TYPE_TIMEOFFSET   7
++#define IOREQ_TYPE_INVALIDATE   8 /* mapcache */
++
++/*
++ * VMExit dispatcher should cooperate with instruction decoder to
++ * prepare this structure and notify service OS and DM by sending
++ * virq.
++ *
++ * For I/O type IOREQ_TYPE_PCI_CONFIG, the physical address is formatted
++ * as follows:
++ *
++ * 63....48|47..40|39..35|34..32|31........0
++ * SEGMENT |BUS   |DEV   |FN    |OFFSET
++ */
++struct ioreq {
++	uint64_t addr;          /* physical address */
++	uint64_t data;          /* data (or paddr of data) */
++	uint32_t count;         /* for rep prefixes */
++	uint32_t size;          /* size in bytes */
++	uint32_t vp_eport;      /* evtchn for notifications to/from device model */
++	uint16_t _pad0;
++	uint8_t state:4;
++	uint8_t data_is_ptr:1;  /* if 1, data above is the guest paddr
++				 * of the real data to use. */
++	uint8_t dir:1;          /* 1=read, 0=write */
++	uint8_t df:1;
++	uint8_t _pad1:1;
++	uint8_t type;           /* I/O type */
++};
++typedef struct ioreq ioreq_t;
++
++struct shared_iopage {
++	struct ioreq vcpu_ioreq[1];
++};
++typedef struct shared_iopage shared_iopage_t;
++
++struct buf_ioreq {
++	uint8_t  type;   /* I/O type                    */
++	uint8_t  pad:1;
++	uint8_t  dir:1;  /* 1=read, 0=write             */
++	uint8_t  size:2; /* 0=>1, 1=>2, 2=>4, 3=>8. If 8, use two buf_ioreqs */
++	uint32_t addr:20;/* physical address            */
++	uint32_t data;   /* data                        */
++};
++typedef struct buf_ioreq buf_ioreq_t;
++
++#define IOREQ_BUFFER_SLOT_NUM     511 /* 8 bytes each, plus 2 4-byte indexes */
++struct buffered_iopage {
++#ifdef __XEN__
++	union bufioreq_pointers {
++		struct {
++#endif
++			uint32_t read_pointer;
++			uint32_t write_pointer;
++#ifdef __XEN__
++		};
++		uint64_t full;
++	} ptrs;
++#endif
++	buf_ioreq_t buf_ioreq[IOREQ_BUFFER_SLOT_NUM];
++}; /* NB. Size of this structure must be no greater than one page. */
++typedef struct buffered_iopage buffered_iopage_t;
++
++/*
++ * ACPI Control/Event register locations. Location is controlled by a
++ * version number in HVM_PARAM_ACPI_IOPORTS_LOCATION.
++ */
++
++/* Version 0 (default): Traditional Xen locations. */
++#define ACPI_PM1A_EVT_BLK_ADDRESS_V0 0x1f40
++#define ACPI_PM1A_CNT_BLK_ADDRESS_V0 (ACPI_PM1A_EVT_BLK_ADDRESS_V0 + 0x04)
++#define ACPI_PM_TMR_BLK_ADDRESS_V0   (ACPI_PM1A_EVT_BLK_ADDRESS_V0 + 0x08)
++#define ACPI_GPE0_BLK_ADDRESS_V0     (ACPI_PM_TMR_BLK_ADDRESS_V0 + 0x20)
++#define ACPI_GPE0_BLK_LEN_V0         0x08
++
++/* Version 1: Locations preferred by modern Qemu. */
++#define ACPI_PM1A_EVT_BLK_ADDRESS_V1 0xb000
++#define ACPI_PM1A_CNT_BLK_ADDRESS_V1 (ACPI_PM1A_EVT_BLK_ADDRESS_V1 + 0x04)
++#define ACPI_PM_TMR_BLK_ADDRESS_V1   (ACPI_PM1A_EVT_BLK_ADDRESS_V1 + 0x08)
++#define ACPI_GPE0_BLK_ADDRESS_V1     0xafe0
++#define ACPI_GPE0_BLK_LEN_V1         0x04
++
++/* Compatibility definitions for the default location (version 0). */
++#define ACPI_PM1A_EVT_BLK_ADDRESS    ACPI_PM1A_EVT_BLK_ADDRESS_V0
++#define ACPI_PM1A_CNT_BLK_ADDRESS    ACPI_PM1A_CNT_BLK_ADDRESS_V0
++#define ACPI_PM_TMR_BLK_ADDRESS      ACPI_PM_TMR_BLK_ADDRESS_V0
++#define ACPI_GPE0_BLK_ADDRESS        ACPI_GPE0_BLK_ADDRESS_V0
++#define ACPI_GPE0_BLK_LEN            ACPI_GPE0_BLK_LEN_V0
++
++
++#endif /* _IOREQ_H_ */
++
++/*
++ * Local variables:
++ * mode: C
++ * c-file-style: "BSD"
++ * c-basic-offset: 4
++ * tab-width: 4
++ * indent-tabs-mode: nil
++ * End:
++ */
+diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/memory.h b/include/xen/interface/memory.h
+--- a/include/xen/interface/memory.h	2019-10-17 23:45:44.000000000 +0300
++++ b/include/xen/interface/memory.h	2019-10-29 16:07:52.272554116 +0300
+@@ -113,6 +113,11 @@ DEFINE_GUEST_HANDLE_STRUCT(xen_memory_ex
+ #define XENMEM_maximum_reservation  4
+ 
+ /*
++ * Returns the maximum GPFN in use by the guest, or -ve errcode on failure.
++ */
++#define XENMEM_maximum_gpfn         14
++
++/*
+  * Returns a list of MFN bases of 2MB extents comprising the machine_to_phys
+  * mapping table. Architectures which do not have a m2p table do not implement
+  * this command.
+@@ -243,6 +248,27 @@ DEFINE_GUEST_HANDLE_STRUCT(xen_memory_ma
+  */
+ #define XENMEM_machine_memory_map   10
+ 
++/*
++ * Translate the given guest PFNs to MFNs
++ */
++#define XENMEM_get_mfn_from_pfn    29
++struct xen_get_mfn_from_pfn {
++    /*
++     * Pointer to buffer to fill with list of pfn.
++     * for IN, it contains the guest PFN that need to translated
++     * for OUT, it contains the translated MFN. or INVALID_MFN if no valid translation
++     */
++    GUEST_HANDLE(ulong) pfn_list;
++
++    /*
++     * IN: Size of the pfn_array.
++     */
++    unsigned int nr_pfns;
++
++    /* IN: which domain */
++    domid_t domid;
++};
++DEFINE_GUEST_HANDLE_STRUCT(xen_get_mfn_from_pfn);
+ 
+ /*
+  * Prevent the balloon driver from changing the memory reservation
+diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/vcpu.h b/include/xen/interface/vcpu.h
+--- a/include/xen/interface/vcpu.h	2019-10-17 23:45:44.000000000 +0300
++++ b/include/xen/interface/vcpu.h	2019-10-29 16:07:52.272554116 +0300
+@@ -220,4 +220,48 @@ struct vcpu_register_time_memory_area {
+ };
+ DEFINE_GUEST_HANDLE_STRUCT(vcpu_register_time_memory_area);
+ 
++/* Request an I/O emulation for the specified VCPU. */
++#define VCPUOP_request_io_emulation       14
++#define PV_IOREQ_READ      1
++#define PV_IOREQ_WRITE     0
++
++#define PV_IOREQ_TYPE_PIO          0 /* pio */
++#define PV_IOREQ_TYPE_COPY         1 /* mmio ops */
++
++struct vcpu_emul_ioreq {
++    uint64_t      addr;           /* physical address */
++    uint64_t      data;           /* data (or paddr of data) */
++    uint64_t      count;          /* for rep prefixes */
++    uint32_t      size;           /* size in bytes */
++    uint16_t      _pad0;
++    uint8_t       state:4;
++    uint8_t       data_is_ptr:1;  /* if 1, data above is the guest paddr
++                                   * of the real data to use. */
++    uint8_t       dir:1;          /* 1=read, 0=write */
++    uint8_t       df:1;
++    uint8_t       _pad1:1;
++    uint8_t       type;           /* I/O type */
++};
++DEFINE_GUEST_HANDLE_STRUCT(vcpu_emul_ioreq);
++
++#define VCPUOP_get_sysdata           16
++/* sub operations */
++#define VCPUOP_sysdata_get_segment   0
++#define VCPUOP_sysdata_read	     1
++struct vcpu_sysdata_request {
++    uint64_t      op_type;
++    union {
++	struct {
++	    uint32_t     selector;
++            uint32_t     pad1;
++	    uint64_t     xdt_desc[2];
++	};
++	struct {
++	    uint64_t     src_addr;	/* linear address */
++            uint64_t     sys_data;
++            uint32_t     bytes;
++	};
++    };
++};
++
+ #endif /* __XEN_PUBLIC_VCPU_H__ */
+diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/xen.h b/include/xen/interface/xen.h
+--- a/include/xen/interface/xen.h	2019-10-17 23:45:44.000000000 +0300
++++ b/include/xen/interface/xen.h	2019-10-29 16:07:52.273554118 +0300
+@@ -115,6 +115,7 @@
+ #define VIRQ_XC_RESERVED 11 /* G. Reserved for XenClient                     */
+ #define VIRQ_ENOMEM     12 /* G. (DOM0) Low on heap memory       */
+ #define VIRQ_XENPMU     13  /* PMC interrupt                                 */
++#define VIRQ_VGT_GFX	15 /* (DOM0) Used for graphics interrupt          */
+ 
+ /* Architecture-specific VIRQ definitions. */
+ #define VIRQ_ARCH_0    16
+@@ -772,6 +773,111 @@ struct tmem_op {
+ 
+ DEFINE_GUEST_HANDLE(u64);
+ 
++/* XEN_DOMCTL_getdomaininfo */
++struct xen_domctl_getdomaininfo {
++	/* OUT variables. */
++	domid_t  domain;              /* Also echoed in domctl.domain */
++	/* Domain is scheduled to die. */
++#define _XEN_DOMINF_dying     0
++#define XEN_DOMINF_dying      (1U<<_XEN_DOMINF_dying)
++	/* Domain is an HVM guest (as opposed to a PV guest). */
++#define _XEN_DOMINF_hvm_guest 1
++#define XEN_DOMINF_hvm_guest  (1U<<_XEN_DOMINF_hvm_guest)
++	/* The guest OS has shut down. */
++#define _XEN_DOMINF_shutdown  2
++#define XEN_DOMINF_shutdown   (1U<<_XEN_DOMINF_shutdown)
++	/* Currently paused by control software. */
++#define _XEN_DOMINF_paused    3
++#define XEN_DOMINF_paused     (1U<<_XEN_DOMINF_paused)
++	/* Currently blocked pending an event.     */
++#define _XEN_DOMINF_blocked   4
++#define XEN_DOMINF_blocked    (1U<<_XEN_DOMINF_blocked)
++	/* Domain is currently running.            */
++#define _XEN_DOMINF_running   5
++#define XEN_DOMINF_running    (1U<<_XEN_DOMINF_running)
++	/* Being debugged.  */
++#define _XEN_DOMINF_debugged  6
++#define XEN_DOMINF_debugged   (1U<<_XEN_DOMINF_debugged)
++	/* XEN_DOMINF_shutdown guest-supplied code.  */
++#define XEN_DOMINF_shutdownmask 255
++#define XEN_DOMINF_shutdownshift 16
++	uint32_t flags;              /* XEN_DOMINF_* */
++	aligned_u64 tot_pages;
++	aligned_u64 max_pages;
++	aligned_u64 outstanding_pages;
++	aligned_u64 shr_pages;
++	aligned_u64 paged_pages;
++	aligned_u64 shared_info_frame; /* GMFN of shared_info struct */
++	aligned_u64 cpu_time;
++	uint32_t nr_online_vcpus;    /* Number of VCPUs currently online. */
++	uint32_t max_vcpu_id;        /* Maximum VCPUID in use by this domain. */
++	uint32_t ssidref;
++	xen_domain_handle_t handle;
++	uint32_t cpupool;
++};
++DEFINE_GUEST_HANDLE_STRUCT(xen_domctl_getdomaininfo);
++
++#define XEN_DOMCTL_INTERFACE_VERSION 0x00000011
++#define XEN_DOMCTL_pausedomain                    3
++#define XEN_DOMCTL_getdomaininfo                  5
++#define XEN_DOMCTL_memory_mapping                 39
++#define XEN_DOMCTL_iomem_permission               20
++
++
++#define XEN_DOMCTL_vgt_io_trap			  700
++
++#define MAX_VGT_IO_TRAP_INFO 4
++
++struct vgt_io_trap_info {
++        uint64_t s;
++        uint64_t e;
++};
++
++struct xen_domctl_vgt_io_trap {
++        uint32_t n_pio;
++        struct vgt_io_trap_info pio[MAX_VGT_IO_TRAP_INFO];
++
++        uint32_t n_mmio;
++        struct vgt_io_trap_info mmio[MAX_VGT_IO_TRAP_INFO];
++};
++
++/* Bind machine I/O address range -> HVM address range. */
++/* XEN_DOMCTL_memory_mapping */
++#define DPCI_ADD_MAPPING        1
++#define DPCI_REMOVE_MAPPING     0
++struct xen_domctl_memory_mapping {
++	aligned_u64 first_gfn; /* first page (hvm guest phys page) in range */
++	aligned_u64 first_mfn; /* first page (machine page) in range. */
++	aligned_u64 nr_mfns;   /* number of pages in range (>0) */
++	uint32_t add_mapping;  /* Add or remove mapping */
++	uint32_t padding;      /* padding for 64-bit aligned struct */
++};
++typedef struct xen_domctl_memory_mapping xen_domctl_memory_mapping_t;
++DEFINE_GUEST_HANDLE_STRUCT(xen_domctl_memory_mapping_t);
++
++/* XEN_DOMCTL_iomem_permission */
++struct xen_domctl_iomem_permission {
++    aligned_u64 first_mfn;/* first page (physical page number) in range */
++    aligned_u64 nr_mfns;  /* number of pages in range (>0) */
++    uint8_t  allow_access;     /* allow (!0) or deny (0) access to range? */
++};
++typedef struct xen_domctl_iomem_permission xen_domctl_iomem_permission_t;
++DEFINE_GUEST_HANDLE_STRUCT(xen_domctl_iomem_permission_t);
++
++struct xen_domctl {
++	uint32_t cmd;
++	uint32_t interface_version; /* XEN_DOMCTL_INTERFACE_VERSION */
++	domid_t  domain;
++	union {
++		struct xen_domctl_getdomaininfo     getdomaininfo;
++		struct xen_domctl_vgt_io_trap       vgt_io_trap;
++		struct xen_domctl_memory_mapping    memory_mapping;
++		struct xen_domctl_iomem_permission 	iomem_perm;
++		uint8_t                             pad[256];
++	}u;
++};
++DEFINE_GUEST_HANDLE_STRUCT(xen_domctl);
++
+ #else /* __ASSEMBLY__ */
+ 
+ /* In assembly code we cannot use C numeric constant suffixes. */
+diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/xen-ops.h b/include/xen/xen-ops.h
+--- a/include/xen/xen-ops.h	2019-10-17 23:45:44.000000000 +0300
++++ b/include/xen/xen-ops.h	2019-10-29 16:07:52.273554118 +0300
+@@ -216,4 +216,9 @@ static inline void xen_preemptible_hcall
+ 
+ #endif /* CONFIG_PREEMPT */
+ 
++struct vm_struct * xen_remap_domain_mfn_range_in_kernel(unsigned long mfn,
++        int nr, unsigned domid);
++void xen_unmap_domain_mfn_range_in_kernel(struct vm_struct *area, int nr,
++		unsigned domid);
++
+ #endif /* INCLUDE_XEN_OPS_H */

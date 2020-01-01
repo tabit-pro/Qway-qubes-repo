@@ -1,0 +1,130 @@
+From: Dmitry Fedorov <d.fedorov@tabit.pro>
+Subject: [PATCH] libxl: add support for xengt video device
+diff -ruNp libvirt-5.7.0/docs/schemas/domaincommon.rng libvirt-5.7.0.new/docs/schemas/domaincommon.rng
+--- libvirt-5.7.0/docs/schemas/domaincommon.rng	2019-12-23 16:18:06.406929895 +0300
++++ libvirt-5.7.0.new/docs/schemas/domaincommon.rng	2019-12-23 17:27:53.309747665 +0300
+@@ -3676,6 +3676,26 @@
+                 </attribute>
+               </optional>
+             </group>
++            <group>
++              <attribute name="type">
++                <value>xengt</value>
++              </attribute>
++              <optional>
++                <attribute name="low_gm_sz">
++                  <ref name="unsignedInt"/>
++                </attribute>
++              </optional>
++              <optional>
++                <attribute name="high_gm_sz">
++                  <ref name="unsignedInt"/>
++                </attribute>
++              </optional>
++              <optional>
++                <attribute name="fence_sz">
++                  <ref name="unsignedInt"/>
++                </attribute>
++              </optional>
++            </group>
+           </choice>
+           <optional>
+             <attribute name="vram">
+diff -ruNp libvirt-5.7.0/src/libxl/libxl_conf.c libvirt-5.7.0.new/src/libxl/libxl_conf.c
+--- libvirt-5.7.0/src/libxl/libxl_conf.c	2019-12-23 16:18:06.428930208 +0300
++++ libvirt-5.7.0.new/src/libxl/libxl_conf.c	2019-12-23 17:31:35.990949551 +0300
+@@ -2494,6 +2494,15 @@ libxlMakeVideo(virDomainDefPtr def, libx
+             }
+             break;
+ #endif
++        case VIR_DOMAIN_VIDEO_TYPE_XENGT:
++	    b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_XENGT;
++            if (def->videos[0]->low_gm_sz) 
++	        b_info->u.hvm.vgt_low_gm_sz = def->videos[0]->low_gm_sz;
++            if (def->videos[0]->high_gm_sz) 
++	        b_info->u.hvm.vgt_high_gm_sz = def->videos[0]->high_gm_sz;
++            if (def->videos[0]->fence_sz) 
++	        b_info->u.hvm.vgt_fence_sz = def->videos[0]->fence_sz;
++            break;
+ 
+         default:
+             virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+diff -ruNp libvirt-5.7.0/src/conf/domain_conf.c libvirt-5.7.0.new/src/conf/domain_conf.c
+--- libvirt-5.7.0/src/conf/domain_conf.c	2019-12-23 16:18:06.409929938 +0300
++++ libvirt-5.7.0.new/src/conf/domain_conf.c	2019-12-23 17:45:40.469092449 +0300
+@@ -741,6 +741,7 @@ VIR_ENUM_IMPL(virDomainVideo,
+               "cirrus",
+               "vmvga",
+               "xen",
++              "xengt",
+               "vbox",
+               "qxl",
+               "parallels",
+@@ -15426,6 +15430,9 @@ virDomainVideoDefParseXML(virDomainXMLOp
+     VIR_AUTOFREE(char *) ram = NULL;
+     VIR_AUTOFREE(char *) vgamem = NULL;
+     VIR_AUTOFREE(char *) primary = NULL;
++    VIR_AUTOFREE(char *) low_gm_sz = NULL;
++    VIR_AUTOFREE(char *) high_gm_sz = NULL;
++    VIR_AUTOFREE(char *) fence_sz = NULL;
+ 
+     if (!(def = virDomainVideoDefNew()))
+         return NULL;
+@@ -15443,6 +15450,9 @@ virDomainVideoDefParseXML(virDomainXMLOp
+                 vram64 = virXMLPropString(cur, "vram64");
+                 vgamem = virXMLPropString(cur, "vgamem");
+                 heads = virXMLPropString(cur, "heads");
++                low_gm_sz = virXMLPropString(cur, "low_gm_sz");
++                high_gm_sz = virXMLPropString(cur, "high_gm_sz");
++                fence_sz = virXMLPropString(cur, "fence_sz");
+ 
+                 if ((primary = virXMLPropString(cur, "primary")) != NULL) {
+                     if (STREQ(primary, "yes"))
+@@ -15525,6 +15535,15 @@ virDomainVideoDefParseXML(virDomainXMLOp
+         }
+     }
+ 
++    if (low_gm_sz)
++        virStrToLong_uip(low_gm_sz, NULL, 10, &def->low_gm_sz);
++
++    if (high_gm_sz)
++        virStrToLong_uip(high_gm_sz, NULL, 10, &def->high_gm_sz);
++
++    if (fence_sz)
++        virStrToLong_uip(fence_sz, NULL, 10, &def->fence_sz);
++
+     if (virDomainDeviceInfoParseXML(xmlopt, node, &def->info, flags) < 0)
+         goto error;
+ 
+diff -ruNp libvirt-5.7.0/src/conf/domain_conf.h libvirt-5.7.0.new/src/conf/domain_conf.h
+--- libvirt-5.7.0/src/conf/domain_conf.h	2019-12-23 16:18:06.426930180 +0300
++++ libvirt-5.7.0.new/src/conf/domain_conf.h	2019-12-23 17:43:34.311278389 +0300
+@@ -1383,6 +1383,7 @@ typedef enum {
+     VIR_DOMAIN_VIDEO_TYPE_CIRRUS,
+     VIR_DOMAIN_VIDEO_TYPE_VMVGA,
+     VIR_DOMAIN_VIDEO_TYPE_XEN,
++    VIR_DOMAIN_VIDEO_TYPE_XENGT,
+     VIR_DOMAIN_VIDEO_TYPE_VBOX,
+     VIR_DOMAIN_VIDEO_TYPE_QXL,
+     VIR_DOMAIN_VIDEO_TYPE_PARALLELS, /* pseudo device for VNC in containers */
+@@ -1422,6 +1423,9 @@ struct _virDomainVideoDef {
+     unsigned int vram64; /* kibibytes (multiples of 1024) */
+     unsigned int vgamem; /* kibibytes (multiples of 1024) */
+     unsigned int heads;
++    unsigned int low_gm_sz;
++    unsigned int high_gm_sz;
++    unsigned int fence_sz;
+     bool primary;
+     virDomainVideoAccelDefPtr accel;
+     virDomainVideoDriverDefPtr driver;
+diff -rup libvirt-5.7.0/src/libxl/libxl_domain.c libvirt-5.7.0.new/src/libxl/libxl_domain.c
+--- libvirt-5.7.0/src/libxl/libxl_domain.c	2019-08-27 15:49:19.725185109 +0300
++++ libvirt-5.7.0.new/src/libxl/libxl_domain.c	2019-12-23 20:02:29.010549548 +0300
+@@ -330,6 +330,7 @@ libxlDomainDeviceDefPostParse(virDomainD
+                     dev->data.video->vram = 8 * 1024;
+                 }
+             break;
++        case VIR_DOMAIN_VIDEO_TYPE_XENGT:
+         case VIR_DOMAIN_VIDEO_TYPE_CIRRUS:
+             if (dev->data.video->vram == 0) {
+                 if (dm_type == LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN)

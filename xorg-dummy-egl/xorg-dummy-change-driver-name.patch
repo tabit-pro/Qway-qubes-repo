@@ -1,0 +1,65 @@
+diff -ruNp a/configure.ac b/configure.ac
+--- a/configure.ac	2018-11-26 00:56:38.000000000 +0300
++++ b/configure.ac	2019-12-13 17:39:42.508399811 +0300
+@@ -62,7 +62,7 @@ PKG_CHECK_MODULES(XORG, [xorg-server >=
+ # Checks for libraries.
+ 
+ 
+-DRIVER_NAME=dummy
++DRIVER_NAME=dummy-egl
+ AC_SUBST([DRIVER_NAME])
+ 
+ AC_CONFIG_FILES([
+diff -ruNp a/src/dummy_driver.c b/src/dummy_driver.c
+--- a/src/dummy_driver.c	2019-12-13 17:47:15.791387388 +0300
++++ b/src/dummy_driver.c	2019-12-13 17:46:27.602900370 +0300
+@@ -72,8 +72,8 @@ static Bool	dummyDriverFunc(ScrnInfoPtr
+ /* 				int PowerManagementMode, int flags); */
+ 
+ #define DUMMY_VERSION 4000
+-#define DUMMY_NAME "DUMMY"
+-#define DUMMY_DRIVER_NAME "dummy"
++#define DUMMY_NAME "DUMMYEGL"
++#define DUMMY_DRIVER_NAME "dummyegl"
+ 
+ #define DUMMY_MAJOR_VERSION PACKAGE_VERSION_MAJOR
+ #define DUMMY_MINOR_VERSION PACKAGE_VERSION_MINOR
+@@ -128,7 +128,7 @@ static MODULESETUPPROTO(dummySetup);
+ 
+ static XF86ModuleVersionInfo dummyVersRec =
+ {
+-	"dummy",
++	"dummyegl",
+ 	MODULEVENDORSTRING,
+ 	MODINFOSTRING1,
+ 	MODINFOSTRING2,
+@@ -406,7 +406,7 @@ Bool DUMMYAdjustScreenPixmap(ScrnInfoPtr
+  * This is the module init data.
+  * Its name has to be the driver name followed by ModuleData
+  */
+-_X_EXPORT XF86ModuleData dummyModuleData = { &dummyVersRec, dummySetup, NULL };
++_X_EXPORT XF86ModuleData dummyeglModuleData = { &dummyVersRec, dummySetup, NULL };
+ 
+ static pointer
+ dummySetup(pointer module, pointer opts, int *errmaj, int *errmin)
+diff -ruNp a/src/Makefile.am b/src/Makefile.am
+--- a/src/Makefile.am	2018-11-26 00:56:38.000000000 +0300
++++ b/src/Makefile.am	2019-12-13 17:44:52.238957592 +0300
+@@ -27,12 +27,12 @@
+ 
+ AM_CFLAGS = $(XORG_CFLAGS) $(PCIACCESS_CFLAGS)
+ 
+-dummy_drv_la_LTLIBRARIES = dummy_drv.la
+-dummy_drv_la_LDFLAGS = -module -avoid-version
+-dummy_drv_la_LIBADD = $(XORG_LIBS)
+-dummy_drv_ladir = @moduledir@/drivers
++dummyegl_drv_la_LTLIBRARIES = dummyegl_drv.la
++dummyegl_drv_la_LDFLAGS = -module -avoid-version
++dummyegl_drv_la_LIBADD = $(XORG_LIBS)
++dummyegl_drv_ladir = @moduledir@/drivers
+ 
+-dummy_drv_la_SOURCES = \
++dummyegl_drv_la_SOURCES = \
+          compat-api.h \
+          dummy_cursor.c \
+          dummy_driver.c \
