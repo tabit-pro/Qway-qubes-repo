@@ -12,7 +12,7 @@ Our 'proven to work' configurations is limited to Intel KabyLake and experimenta
 
 ## Build and install dom0 packages
 
-The following packages should be built from current repo and installed in the dom0: _libvirt, kernel-gvt, qemu-qubes, xen_. 
+The following packages should be built from current repo and installed in the dom0: _libvirt, kernel-gvt, qemu-qubes, xen_.
 
 Source packages could be built using mock-scm plugin:
 ```
@@ -56,9 +56,10 @@ Supported xengt variables:
 ## Modify domU template
 
 Clone existing fedora template and customize the configuration:
-* install the latest available kernel - kernel upstream should have GVT-g support. If you are experiencing issues then the _kernel-gvt_ package from dom0 might work;
+* switch VM mode to HVM
 * set _none_ in VM kernel option to boot with domU kernel;
 * setup ssh service and iptable rules to allow access via netvm for debug purposes;
+* install the latest available kernel - kernel upstream should have GVT-g support. If you are experiencing issues then the _kernel-gvt_ package from dom0 might work;
 * install _xorg-dummy-egl_ package;
 * replace _/etc/X11/xorg-qubes.conf.template_ with _xorg-qubes-egl.conf.template_ to enable hardware accelerated dummy driver.
 
@@ -81,6 +82,11 @@ Properly created vGPU in qemu logs looks like that (_/var/log/xen/qemu-dm-VM.log
     set vendor id(5853) for devfn(18)
     set vendor id(10ec) for devfn(20)
     vGT: create_vgt_instance: domid=29, low_gm_sz=64MB, high_gm_sz=448MB, fence_sz=4, vgt_primary=-1
+
+## Screenshots
+
+![glmark](https://user-images.githubusercontent.com/49684805/71646212-6b0c7200-2cb2-11ea-92f0-a16b7e8c0694.png)
+![mpv](https://user-images.githubusercontent.com/49684805/71646214-6e9ff900-2cb2-11ea-879b-56e384f96fdc.png)
 
 ## Based on
 
