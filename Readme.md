@@ -56,8 +56,9 @@ Supported xengt variables:
 ## Modify domU template
 
 Clone existing fedora template and customize the configuration:
-* switch VM mode to HVM
+* switch VM mode to HVM;
 * set _none_ in VM kernel option to boot with domU kernel;
+* set qrexec_timeout 120 (device init requires some time);
 * setup ssh service and iptable rules to allow access via netvm for debug purposes;
 * install the latest available kernel - kernel upstream should have GVT-g support. If you are experiencing issues then the _kernel-gvt_ package from dom0 might work;
 * install _xorg-dummy-egl_ package;
