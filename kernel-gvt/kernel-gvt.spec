@@ -2,10 +2,10 @@
 # Based on the Open SUSE kernel-spec & Fedora kernel-spec.
 #
 
-%define variant pvops.qubes
+%define variant gvt.qubes
 %define plainrel 1
 %define rel %{plainrel}.%{variant}
-%define version 4.19.89
+%define version 4.19.93
 
 %define _buildshell /bin/bash
 %define build_xen       1
@@ -72,6 +72,11 @@ BuildRequires:  gcc
 
 # Needed for building GCC hardened plugins
 BuildRequires: gcc-c++
+
+# to use pathfix.py
+%if 0%{?fedora} >= 31
+BuildRequires: python3-devel
+%endif
 
 Provides:       multiversion(kernel)
 Provides:       %name = %kernelrelease
