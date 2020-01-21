@@ -4,7 +4,7 @@
 # that's still supported by the vendor. It may work on other distros
 # or versions, but no effort will be made to ensure that going forward.
 %define min_rhel 7
-%define min_fedora 29
+%define min_fedora 30
 
 %if (0%{?fedora} && 0%{?fedora} >= %{min_fedora}) || (0%{?rhel} && 0%{?rhel} >= %{min_rhel})
     %define supported_platform 1
@@ -256,12 +256,12 @@
 
 Summary: Library providing a simple virtualization API
 Name: libvirt
-Version: 5.7.0
-Release: 70%{?dist}%{?extra_release}
+Version: 6.0.0
+Release: 100%{?dist}%{?extra_release}
 License: LGPLv2+
 URL: https://libvirt.org/
 
-%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-core-libvirt/v%{version}-2
+%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-core-libvirt/v%{version}-1
 %if %(echo %{version} | grep -q "\.0$"; echo $?) == 1
     %define mainturl stable_updates/
 %endif
@@ -283,7 +283,7 @@ Patch0012: %{patchurl}/0012-libxl-add-linux-stubdom-support.patch
 Patch0013: %{patchurl}/0013-libxl-add-support-for-qubes-graphic-device.patch
 Patch0014: %{patchurl}/0014-libxl-add-support-for-stubdom_mem-option.patch
 Patch0015: %{patchurl}/0015-Add-permissive-option-for-PCI-devices.patch
-Patch0016: %{patchurl}/0016-libxl-Fix-libxlDomainPMSuspendForDuration-domain-act.patch
+Patch0016: %{patchurl}/0016-libxl-initialize-shutdown-inhibit-callback.patch
 Patch0017: libxl-add-support-for-xengt-video.patch
 
 Requires: libvirt-daemon = %{version}-%{release}
@@ -325,7 +325,11 @@ BuildRequires: autoconf
 BuildRequires: automake
 BuildRequires: gettext-devel
 BuildRequires: libtool
-BuildRequires: /usr/bin/pod2man
+%endif
+%if 0%{?rhel} == 7
+BuildRequires: python36-docutils
+%else
+BuildRequires: python3-docutils
 %endif
 BuildRequires: gcc
 BuildRequires: git
@@ -334,11 +338,12 @@ BuildRequires: perl-interpreter
 %else
 BuildRequires: perl
 %endif
-BuildRequires: %{python}
+BuildRequires: python3
 BuildRequires: systemd-units
 %if %{with_libxl}
 BuildRequires: xen-devel >= 2001:4.8.3-1
 %endif
+BuildRequires: glib2-devel >= 2.48
 BuildRequires: libxml2-devel
 BuildRequires: libxslt
 BuildRequires: readline-devel
@@ -1258,8 +1263,13 @@ export SOURCE_DATE_EPOCH=$(stat --printf='%Y' %{_specdir}/%{name}.spec)
  autoreconf -if
 %endif
 
+%define _configure ../configure
+mkdir %{_vpath_builddir}
+cd %{_vpath_builddir}
+
 rm -f po/stamp-po
-%configure --with-runstatedir=%{_rundir} \
+%configure --enable-dependency-tracking \
+           --with-runstatedir=%{_rundir} \
            %{?arg_qemu} \
            %{?arg_openvz} \
            %{?arg_lxc} \
@@ -1268,7 +1278,6 @@ rm -f po/stamp-po
            --with-sasl \
            --with-polkit \
            --with-libvirtd \
-           %{?arg_phyp} \
            %{?arg_esx} \
            %{?arg_hyperv} \
            %{?arg_vmware} \
@@ -1322,12 +1331,8 @@ rm -f po/stamp-po
            --with-init-script=systemd \
            %{?arg_login_shell}
 make %{?_smp_mflags} V=1
-gzip -9 ChangeLog
 
 cat >> src/remote/libvirtd.conf <<__EOF__
-
-# Qubes tools do not send keepalives, although advertises so
-keepalive_interval = -1
 
 # Allow any user in 'qubes' group to access libvirt
 unix_sock_group = "qubes"
@@ -1343,6 +1348,7 @@ rm -fr %{buildroot}
 # SOURCE_DATE_EPOCH set by RPM based on changelog
 #export SOURCE_DATE_EPOCH=$(stat --printf='%Y' %{_specdir}/%{name}.spec)
 
+cd %{_vpath_builddir}
 %make_install %{?_smp_mflags} SYSTEMD_UNIT_DIR=%{_unitdir} V=1
 
 rm -f $RPM_BUILD_ROOT%{_libdir}/*.la
@@ -1426,6 +1432,7 @@ mv $RPM_BUILD_ROOT%{_datadir}/systemtap/tapset/libvirt_qemu_probes.stp \
 %endif
 
 %check
+cd %{_vpath_builddir}
 cd tests
 # These tests don't current work in a mock build root
 for i in nodeinfotest seclabeltest
@@ -1496,6 +1503,12 @@ if [ $1 -ge 1 ] ; then
     /bin/systemctl is-active libvirtd.service 1>/dev/null 2>&1 &&
         /bin/systemctl start virtlogd.socket virtlogd-admin.socket || :
 fi
+
+%triggerin -- xen-libs
+# BEGIN QUBES SPECIFIC PART
+# reload libxl library otherwise libvirt will use old libraries after update
+systemctl try-restart libvirtd.service >/dev/null 2>&1 || :
+# END QUBES SPECIFIC PART
 
 %posttrans daemon
 if [ -f %{_localstatedir}/lib/rpm-state/libvirt/restart ]; then
@@ -1647,16 +1660,8 @@ exit 0
 %files
 
 %files docs
-%doc AUTHORS ChangeLog.gz NEWS README README.md
-%doc libvirt-docs/*
-
-# API docs
-%dir %{_datadir}/gtk-doc/html/libvirt/
-%doc %{_datadir}/gtk-doc/html/libvirt/*.devhelp
-%doc %{_datadir}/gtk-doc/html/libvirt/*.html
-%doc %{_datadir}/gtk-doc/html/libvirt/*.png
-%doc %{_datadir}/gtk-doc/html/libvirt/*.css
-
+%doc AUTHORS NEWS README README.md
+%doc %{_vpath_builddir}/libvirt-docs/*
 
 %files daemon
 
@@ -2020,7 +2025,7 @@ exit 0
 %config(noreplace) %{_sysconfdir}/sysconfig/libvirt-guests
 %attr(0755, root, root) %{_libexecdir}/libvirt-guests.sh
 
-%files libs -f %{name}.lang
+%files libs -f %{_vpath_builddir}/%{name}.lang
 %license COPYING COPYING.LESSER
 %config(noreplace) %{_sysconfdir}/libvirt/libvirt.conf
 %config(noreplace) %{_sysconfdir}/libvirt/libvirt-admin.conf
@@ -2036,6 +2041,7 @@ exit 0
 %{_datadir}/libvirt/schemas/capability.rng
 %{_datadir}/libvirt/schemas/cputypes.rng
 %{_datadir}/libvirt/schemas/domain.rng
+%{_datadir}/libvirt/schemas/domainbackup.rng
 %{_datadir}/libvirt/schemas/domaincaps.rng
 %{_datadir}/libvirt/schemas/domaincheckpoint.rng
 %{_datadir}/libvirt/schemas/domaincommon.rng
