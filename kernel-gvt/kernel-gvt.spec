@@ -35,7 +35,7 @@
 %endif
 
 %define name_suffix -gvt
-%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-linux-kernel/v%{version}-1
+%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-linux-kernel/stable-4.19
 
 Name:           kernel%{?name_suffix}
 Summary:        The Xen Kernel
