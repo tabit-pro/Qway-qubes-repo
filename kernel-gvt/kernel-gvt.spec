@@ -5,7 +5,7 @@
 %define variant gvt.qubes
 %define plainrel 1
 %define rel %{plainrel}.%{variant}
-%define version 4.19.94
+%define version 4.19.96
 
 %define _buildshell /bin/bash
 %define build_xen       1
