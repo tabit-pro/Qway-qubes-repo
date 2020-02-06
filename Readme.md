@@ -47,7 +47,7 @@ Supported xengt variables:
 * **high_gm_sz** - the high gm size which is CPU invisible, default is 448.  
 * **fence_sz** - the number of the fence registers, default is 4.
 
-Run _qvm-features <HVMNAME> video-model xengt_ to enable mediated passthrough.
+Run _qvm-features HVMNAME video-model xengt_ to enable mediated passthrough for HVMNAME.
 
 ## Modify domU template
 
