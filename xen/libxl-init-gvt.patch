@@ -1,29 +1,78 @@
-diff -ruNp xen-4.12.1/tools/libxl/libxl_dm.c xen-4.12.1.new/tools/libxl/libxl_dm.c
---- xen-4.12.1/tools/libxl/libxl_dm.c	2019-12-20 14:14:18.177409946 +0300
-+++ xen-4.12.1.new/tools/libxl/libxl_dm.c	2019-12-20 12:09:09.334905357 +0300
-@@ -1422,6 +1424,18 @@ static int libxl__build_device_model_arg
+diff -pruN xen-4.13.0/tools/libxl/libxl_create.c xen-4.13.0.new/tools/libxl/libxl_create.c
+--- xen-4.13.0/tools/libxl/libxl_create.c	2020-02-06 11:37:43.964628249 +0300
++++ xen-4.13.0.new/tools/libxl/libxl_create.c	2020-02-06 11:34:57.629786673 +0300
+@@ -27,6 +27,36 @@
+ 
+ #include <xen-xsm/flask/flask.h>
+ 
++/* The format of the string is:
++ * domid,aperture_size,gm_size,fence_size. This means we want the vgt
++ * driver to create a vgt instance for Domain domid with the required
++ * parameters. NOTE: aperture_size and gm_size are in MB.
++ */
++static void domcreate_vgt_instance(libxl__gc *gc, uint32_t domid,
++                              libxl_domain_build_info *b_info)
++{
++    const char *path = "/sys/kernel/vgt/control/create_vgt_instance";
++    FILE *vgt_file;
++    int low_gm = b_info->u.hvm.vgt_low_gm_sz ?: 64;
++    int high_gm = b_info->u.hvm.vgt_high_gm_sz ?: 448;
++    int fence = b_info->u.hvm.vgt_fence_sz ?: 4;
++
++    if ((vgt_file = fopen(path, "w")) == NULL) {
++        LOGD(ERROR, domid, "vGT: fopen failed\n");
++        return;
++    }
++
++    LOGD(INFO, domid, "vGT: fprintf %u,%u,%u,%u,-1,0\n", 
++		    domid, low_gm, high_gm, fence);
++    
++    if (fprintf(vgt_file, "%u,%u,%u,%u,-1,0\n",
++               domid, low_gm, high_gm, fence) < 0)
++        LOGD(ERROR, domid, "vGT: fprintf failed %d\n", errno);
++    
++    fclose(vgt_file);
++    return;
++}
++
+ int libxl__domain_create_info_setdefault(libxl__gc *gc,
+                                          libxl_domain_create_info *c_info,
+                                          const libxl_physinfo *info)
+@@ -328,6 +358,7 @@ int libxl__domain_build_info_setdefault(
+                     return ERROR_INVAL;
+                 }
+                 break;
++            case LIBXL_VGA_INTERFACE_TYPE_XENGT:
+             case LIBXL_VGA_INTERFACE_TYPE_CIRRUS:
+             default:
+                 if (b_info->video_memkb == LIBXL_MEMKB_DEFAULT)
+@@ -1609,6 +1640,9 @@ static void domcreate_launch_dm(libxl__e
+         if ( ret )
+             goto error_out;
+ 
++	if (d_config->b_info.u.hvm.vga.kind == LIBXL_VGA_INTERFACE_TYPE_XENGT)
++            domcreate_vgt_instance(gc, domid, &d_config->b_info);
++
+         return;
+     }
+     case LIBXL_DOMAIN_TYPE_PV:
+diff -pruN xen-4.13.0/tools/libxl/libxl_dm.c xen-4.13.0.new/tools/libxl/libxl_dm.c
+--- xen-4.13.0/tools/libxl/libxl_dm.c	2020-02-06 11:37:43.964628249 +0300
++++ xen-4.13.0.new/tools/libxl/libxl_dm.c	2020-02-06 11:31:14.063182594 +0300
+@@ -1422,6 +1422,9 @@ static int libxl__build_device_model_arg
                  GCSPRINTF("qxl-vga,vram_size_mb=%"PRIu64",ram_size_mb=%"PRIu64,
                  (b_info->video_memkb/2/1024), (b_info->video_memkb/2/1024) ) );
              break;
 +        case LIBXL_VGA_INTERFACE_TYPE_XENGT:
 +            flexarray_vappend(dm_args, "-vga", "xengt", NULL);
-+            if (b_info->u.hvm.vgt_low_gm_sz)
-+                flexarray_vappend(dm_args, "-vgt_low_gm_sz",
-+                    libxl__sprintf(gc, "%d", b_info->u.hvm.vgt_low_gm_sz), NULL);
-+            if (b_info->u.hvm.vgt_high_gm_sz) 
-+                flexarray_vappend(dm_args, "-vgt_high_gm_sz",
-+                    libxl__sprintf(gc, "%d", b_info->u.hvm.vgt_high_gm_sz), NULL);
-+            if (b_info->u.hvm.vgt_fence_sz) 
-+                flexarray_vappend(dm_args, "-vgt_fence_sz",
-+                    libxl__sprintf(gc, "%d", b_info->u.hvm.vgt_fence_sz), NULL);
-+	    break;
++	     break;
          default:
              LOGD(ERROR, guest_domid, "Invalid emulated video card specified");
              return ERROR_INVAL;
-diff -ruNp xen-4.12.1/tools/libxl/libxl_domain.c xen-4.12.1.new/tools/libxl/libxl_domain.c
---- xen-4.12.1/tools/libxl/libxl_domain.c	2019-08-09 13:44:35.000000000 +0300
-+++ xen-4.12.1.new/tools/libxl/libxl_domain.c	2019-12-18 17:50:45.905336726 +0300
-@@ -935,6 +935,30 @@ static void domain_destroy_callback(libx
+diff -pruN xen-4.13.0/tools/libxl/libxl_domain.c xen-4.13.0.new/tools/libxl/libxl_domain.c
+--- xen-4.13.0/tools/libxl/libxl_domain.c	2019-12-17 17:23:09.000000000 +0300
++++ xen-4.13.0.new/tools/libxl/libxl_domain.c	2020-02-06 11:31:14.063182594 +0300
+@@ -1073,6 +1073,30 @@ static void domain_destroy_callback(libx
  static void destroy_finish_check(libxl__egc *egc,
                                   libxl__domain_destroy_state *dds);
  
@@ -54,7 +103,7 @@ diff -ruNp xen-4.12.1/tools/libxl/libxl_domain.c xen-4.12.1.new/tools/libxl/libx
  void libxl__domain_destroy(libxl__egc *egc, libxl__domain_destroy_state *dds)
  {
      STATE_AO_GC(dds->ao);
-@@ -1147,6 +1171,8 @@ static void devices_destroy_cb(libxl__eg
+@@ -1308,6 +1332,8 @@ static void devices_destroy_cb(libxl__eg
      }
      libxl__userdata_destroyall(gc, domid);
  
@@ -63,9 +112,9 @@ diff -ruNp xen-4.12.1/tools/libxl/libxl_domain.c xen-4.12.1.new/tools/libxl/libx
      libxl__unlock_domain_userdata(lock);
  
      /* Clean up qemu-save and qemu-resume files. They are
-diff -ruNp xen-4.12.1/tools/libxl/libxl_types.idl xen-4.12.1.new/tools/libxl/libxl_types.idl
---- xen-4.12.1/tools/libxl/libxl_types.idl	2019-12-20 14:14:18.177409946 +0300
-+++ xen-4.12.1.new/tools/libxl/libxl_types.idl	2019-12-20 19:09:06.079432986 +0300
+diff -pruN xen-4.13.0/tools/libxl/libxl_types.idl xen-4.13.0.new/tools/libxl/libxl_types.idl
+--- xen-4.13.0/tools/libxl/libxl_types.idl	2020-02-06 11:37:43.965628332 +0300
++++ xen-4.13.0.new/tools/libxl/libxl_types.idl	2020-02-06 11:31:14.064182678 +0300
 @@ -38,6 +38,7 @@ libxl_ms_vm_genid = Builtin("ms_vm_genid
  #
  
@@ -82,7 +131,7 @@ diff -ruNp xen-4.12.1/tools/libxl/libxl_types.idl xen-4.12.1.new/tools/libxl/lib
      ], init_val = "LIBXL_VGA_INTERFACE_TYPE_UNKNOWN")
  
  libxl_vendor_device = Enumeration("vendor_device", [
-@@ -576,6 +578,9 @@ libxl_domain_build_info = Struct("domain
+@@ -595,6 +597,9 @@ libxl_domain_build_info = Struct("domain
                                         ("hdtype",           libxl_hdtype),
                                         ("nographic",        libxl_defbool),
                                         ("vga",              libxl_vga_interface_info),
@@ -92,10 +141,10 @@ diff -ruNp xen-4.12.1/tools/libxl/libxl_types.idl xen-4.12.1.new/tools/libxl/lib
                                         ("vnc",              libxl_vnc_info),
                                         # keyboard layout, default is en-us keyboard
                                         ("keymap",           string),
-diff -ruNp xen-4.12.1/tools/xl/xl_parse.c xen-4.12.1.new/tools/xl/xl_parse.c
---- xen-4.12.1/tools/xl/xl_parse.c	2019-12-20 14:14:18.126409349 +0300
-+++ xen-4.12.1.new/tools/xl/xl_parse.c	2019-12-20 19:08:24.052299535 +0300
-@@ -2567,6 +2567,8 @@ skip_usbdev:
+diff -pruN xen-4.13.0/tools/xl/xl_parse.c xen-4.13.0.new/tools/xl/xl_parse.c
+--- xen-4.13.0/tools/xl/xl_parse.c	2020-02-06 11:37:43.866620092 +0300
++++ xen-4.13.0.new/tools/xl/xl_parse.c	2020-02-06 11:31:14.064182678 +0300
+@@ -2590,6 +2590,8 @@ skip_usbdev:
                  b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_NONE;
              } else if (!strcmp(buf, "qxl")) {
                  b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_QXL;
@@ -104,7 +153,7 @@ diff -ruNp xen-4.12.1/tools/xl/xl_parse.c xen-4.12.1.new/tools/xl/xl_parse.c
              } else {
                  fprintf(stderr, "Unknown vga \"%s\" specified\n", buf);
                  exit(1);
-@@ -2582,6 +2584,13 @@ skip_usbdev:
+@@ -2605,6 +2607,13 @@ skip_usbdev:
                  exit (1);
          }
  
@@ -118,14 +167,3 @@ diff -ruNp xen-4.12.1/tools/xl/xl_parse.c xen-4.12.1.new/tools/xl/xl_parse.c
          xlu_cfg_replace_string (config, "keymap", &b_info->u.hvm.keymap, 0);
          xlu_cfg_get_defbool (config, "spice", &b_info->u.hvm.spice.enable, 0);
          if (!xlu_cfg_get_long (config, "spiceport", &l, 0))
-diff -rup xen-4.12.1/tools/libxl/libxl_create.c xen-4.12.1.new/tools/libxl/libxl_create.c
---- xen-4.12.1/tools/libxl/libxl_create.c	2019-12-20 14:14:18.176409934 +0300
-+++ xen-4.12.1.new/tools/libxl/libxl_create.c	2019-12-23 19:06:29.960697493 +0300
-@@ -314,6 +314,7 @@ int libxl__domain_build_info_setdefault(
-                     return ERROR_INVAL;
-                 }
-                 break;
-+            case LIBXL_VGA_INTERFACE_TYPE_XENGT:
-             case LIBXL_VGA_INTERFACE_TYPE_CIRRUS:
-             default:
-                 if (b_info->video_memkb == LIBXL_MEMKB_DEFAULT)

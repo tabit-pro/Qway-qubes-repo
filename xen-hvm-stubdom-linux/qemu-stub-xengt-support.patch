@@ -1,0 +1,73 @@
+--- a/hw/pci/pci.c	2019-12-12 21:20:47.000000000 +0300
++++ b/hw/pci/pci.c	2020-02-03 15:40:06.327604130 +0300
+@@ -1015,6 +1017,10 @@ static PCIDevice *do_pci_register_device
+     if (devfn < 0) {
+         for(devfn = bus->devfn_min ; devfn < ARRAY_SIZE(bus->devices);
+             devfn += PCI_FUNC_MAX) {
++            /* If vGT/XenGT is in use, reserve 00:02.* for the IGD */
++            if ((vgt_vga_enabled) && devfn == 0x10)
++                continue;
++
+             if (pci_bus_devfn_available(bus, devfn) &&
+                    !pci_bus_devfn_reserved(bus, devfn)) {
+                 goto found;
+--- a/include/sysemu/sysemu.h	2019-12-12 21:20:48.000000000 +0300
++++ b/include/sysemu/sysemu.h	2020-02-03 15:40:06.327604130 +0300
+@@ -27,12 +27,13 @@ extern int autostart;
+ 
+ typedef enum {
+     VGA_NONE, VGA_STD, VGA_CIRRUS, VGA_VMWARE, VGA_XENFB, VGA_QXL,
+-    VGA_TCX, VGA_CG3, VGA_DEVICE, VGA_VIRTIO,
++    VGA_TCX, VGA_CG3, VGA_DEVICE, VGA_VIRTIO, VGA_VGT,
+     VGA_TYPE_MAX,
+ } VGAInterfaceType;
+ 
+ extern int vga_interface_type;
+ #define xenfb_enabled (vga_interface_type == VGA_XENFB)
++#define vgt_vga_enabled (vga_interface_type == VGA_VGT)
+ 
+ extern int graphic_width;
+ extern int graphic_height;
+--- a/qemu-options.hx	2019-12-12 21:20:48.000000000 +0300
++++ b/qemu-options.hx	2020-02-03 15:42:41.640378819 +0300
+@@ -1826,7 +1826,7 @@ Rotate graphical output some deg left (o
+ ETEXI
+ 
+ DEF("vga", HAS_ARG, QEMU_OPTION_vga,
+-    "-vga [std|cirrus|vmware|qxl|xenfb|tcx|cg3|virtio|none]\n"
++    "-vga [std|cirrus|vmware|qxl|xenfb|tcx|cg3|virtio|xengt|none]\n"
+     "                select video card type\n", QEMU_ARCH_ALL)
+ STEXI
+ @item -vga @var{type}
+@@ -1861,6 +1861,10 @@ for sun4m machines available in both 102
+ resolutions aimed at people wishing to run older Solaris versions.
+ @item virtio
+ Virtio VGA card.
++@item xengt
++Intel IGD card based on mediated pass-through technique. A single
++IGD card can be used to accelerate multiple VMs, which each run
++native graphics driver inside.
+ @item none
+ Disable VGA card.
+ @end table
+--- a/vl.c	2019-12-12 21:20:48.000000000 +0300
++++ b/vl.c	2020-02-03 15:41:59.412661464 +0300
+@@ -1910,6 +1910,10 @@ static const VGAInterfaceInfo vga_interf
+         .opt_name = "xenfb",
+         .name = "Xen paravirtualized framebuffer",
+     },
++    [VGA_VGT] = {
++        .opt_name = "xengt",
++        .name = "Intel GVT-g",
++    },
+ };
+ 
+ static bool vga_interface_available(VGAInterfaceType t)
+@@ -1964,6 +1968,7 @@ static void select_vgahw(const MachineCl
+                 exit(1);
+             }
+             vga_interface_type = t;
++            printf("%s vga is %s\n", __func__, ti->opt_name);
+             break;
+         }
+     }

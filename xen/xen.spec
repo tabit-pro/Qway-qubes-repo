@@ -69,18 +69,20 @@
 %define upstream_version 4.13.0
 #%define rctag %(echo 4.13.0 | sed -n -e 's/.*-\\(rc[0-9]*\\).*/0.\\1./;/rc/p')
 
+%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-vmm-xen/v%{version}-0.3
+
 Summary: Xen is a virtual machine monitor
 Name:    xen
 Version: 4.13.0
-Release: 100%{?dist}
+Release: 138%{?dist}
 Epoch:   2001
 Group:   Development/Libraries
 License: GPLv2+ and LGPLv2+ and BSD
 URL:     http://xen.org/
 Source0: https://downloads.xenproject.org/release/xen/%{version}/xen-%{upstream_version}.tar.gz
-Source2: https://raw.githubusercontent.com/QubesOS/qubes-vmm-xen/v%{version}-0.1/%{name}.logrotate
-Source3: https://raw.githubusercontent.com/QubesOS/qubes-vmm-xen/v%{version}-0.1/config
-Source32: https://raw.githubusercontent.com/QubesOS/qubes-vmm-xen/v%{version}-0.1/xen.modules-load.conf
+Source2: %{patchurl}/%{name}.logrotate
+Source3: %{patchurl}/config
+Source32: %{patchurl}/xen.modules-load.conf
 
 # Out-of-tree patches.
 #
@@ -95,8 +97,6 @@ Source32: https://raw.githubusercontent.com/QubesOS/qubes-vmm-xen/v%{version}-0.
 # 1000+: Qubes specific patches
 # 1100+: Others
 
-%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-vmm-xen/v%{version}-0.1
-
 # Fedora
 Patch101: %{patchurl}/patch-xen.python.env.patch
 
@@ -104,6 +104,9 @@ Patch101: %{patchurl}/patch-xen.python.env.patch
 Patch201: %{patchurl}/patch-0001-EFI-early-Add-noexit-to-inhibit-calling-ExitBootServices.patch
 Patch202: %{patchurl}/patch-0002-efi-Ensure-incorrectly-typed-runtime-services-get-ma.patch
 Patch203: %{patchurl}/patch-0001-Add-xen.cfg-options-for-mapbs-and-noexitboot.patch
+
+# Backports
+Patch301: %{patchurl}/patch-sched-fix-resuming-from-S3-with-smt-0.patch
 
 # Security fixes
 
@@ -153,13 +156,14 @@ Patch1003: %{patchurl}/patch-xen-hotplug-external-store.patch
 Patch1006: %{patchurl}/patch-xen-libxl-qubes-minimal-stubdom.patch
 Patch1007: %{patchurl}/patch-xen-disable-dom0-qemu.patch
 Patch1009: %{patchurl}/patch-xenconsoled-enable-logging.patch
-#TODO Patch1110: patch-stubdom-linux-libxl-suspend.patch
+Patch1010: %{patchurl}/patch-stubdom-linux-libxl-suspend.patch
 Patch1011: %{patchurl}/patch-xen-hotplug-qubesdb-update.patch
 Patch1012: %{patchurl}/patch-tools-hotplug-drop-perl-usage-in-locking-mechanism.patch
 Patch1013: %{patchurl}/patch-stubdom-linux-libxl-use-EHCI-for-providing-tablet-USB-device.patch
 Patch1014: %{patchurl}/patch-allow-kernelopts-stubdom.patch
 Patch1015: %{patchurl}/patch-libxl-readonly-disk-scsi.patch
 Patch1016: %{patchurl}/patch-tools-xenconsole-replace-ESC-char-on-xenconsole-outp.patch
+Patch1017: %{patchurl}/patch-libxl-disable-vkb-by-default.patch
 
 Patch1020: %{patchurl}/patch-stubdom-linux-config-qubes-gui.patch
 Patch1021: %{patchurl}/patch-stubdom-linux-libxl-do-not-force-qdisk-backend-for-cdrom.patch
@@ -168,7 +172,7 @@ Patch1022: %{patchurl}/patch-xen-acpi-slic-support.patch
 # GVT-g
 Patch1200: 0007-hypercall-XENMEM_get_mfn_from_pfn.patch
 Patch1201: gvt-g-hvmloader.patch
-Patch1202: libxl-add-gvt-options.patch
+Patch1202: libxl-init-gvt.patch
 
 %if %build_qemutrad
 BuildRequires: libidn-devel zlib-devel SDL-devel curl-devel
