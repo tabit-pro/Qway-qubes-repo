@@ -53,6 +53,7 @@ Run _qvm-features HVMNAME video-model xengt_ to enable mediated passthrough for 
 
 Clone existing fedora template and customize the configuration:
 * switch VM mode to HVM;
+* disable "Include in memory balancing" option;
 * install the latest available kernel - kernel upstream should have GVT-g support. If you are experiencing issues then the _kernel-gvt_ package from dom0 might work;
 * set _none_ in VM kernel option to boot with domU kernel;
 * set qrexec_timeout 120 (device init requires some time);
