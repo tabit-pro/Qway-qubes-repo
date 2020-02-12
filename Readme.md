@@ -5,7 +5,7 @@ At the moment the only feature that we are publishing here is an **Intel GVT-g m
 
 # Intel GVT-g on Qubes
 
-Our 'proven to work' configuration is limited to Intel KabyLake and experimental Qubes r4.1, but ![supported xengt platforms](https://01.org/node/28748) should also work fine.
+Our 'proven to work' configuration is limited to Intel KabyLake and experimental Qubes r4.1, but [supported xengt platforms](https://01.org/node/28748) should also work fine.
 
 ## Build and install dom0 packages
 
