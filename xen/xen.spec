@@ -69,12 +69,12 @@
 %define upstream_version 4.13.0
 #%define rctag %(echo 4.13.0 | sed -n -e 's/.*-\\(rc[0-9]*\\).*/0.\\1./;/rc/p')
 
-%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-vmm-xen/v%{version}-0.3
+%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-vmm-xen/xen-4.13
 
 Summary: Xen is a virtual machine monitor
 Name:    xen
 Version: 4.13.0
-Release: 138%{?dist}
+Release: 140%{?dist}
 Epoch:   2001
 Group:   Development/Libraries
 License: GPLv2+ and LGPLv2+ and BSD
@@ -107,6 +107,7 @@ Patch203: %{patchurl}/patch-0001-Add-xen.cfg-options-for-mapbs-and-noexitboot.pa
 
 # Backports
 Patch301: %{patchurl}/patch-sched-fix-resuming-from-S3-with-smt-0.patch
+Patch302: %{patchurl}/patch-4.13-0001-x86-amd-Avoid-cpu_has_hypervisor-evaluating-true-on-.patch
 
 # Security fixes
 
@@ -119,6 +120,12 @@ Patch601: %{patchurl}/patch-xen-libxl-error-write-perm.patch
 Patch607: %{patchurl}/patch-libxl-do-not-for-backend-on-PCI-remove-when-backend-.patch
 Patch614: %{patchurl}/patch-0001-libxl-do-not-fail-device-removal-if-backend-domain-i.patch
 Patch621: %{patchurl}/patch-libxc-fix-xc_gntshr_munmap-semantic.patch
+Patch622: %{patchurl}/patch-xen-disable-efi-gettime.patch
+Patch623: %{patchurl}/patch-libxl-console.patch
+Patch624: %{patchurl}/patch-libxl-console-fix.patch
+Patch625: %{patchurl}/patch-xen-gcc10-fixes.patch
+Patch626: %{patchurl}/patch-xen-ocaml-4.10.patch
+Patch627: %{patchurl}/patch-xen-pygrubfix.patch
 
 # GCC7 fixes
 Patch706: %{patchurl}/patch-mini-os-link-to-libgcc.a-to-fix-build-with-gcc7.patch
@@ -669,11 +676,18 @@ if [ -f /boot/efi/EFI/qubes/xen.cfg ]; then
     if ! grep -q smt=off /boot/efi/EFI/qubes/xen.cfg; then
         sed -i -e 's:^options=.*:\0 smt=off:' /boot/efi/EFI/qubes/xen.cfg
     fi
+    if ! grep -q gnttab_max_frames /boot/efi/EFI/qubes/xen.cfg; then
+        sed -i -e 's:^options=.*:\0 gnttab_max_frames=2048 gnttab_max_maptrack_frames=4096:' /boot/efi/EFI/qubes/xen.cfg
+    fi
 fi
 
 if [ -f /etc/default/grub ]; then
     if ! grep -q smt=off /etc/default/grub; then
         echo 'GRUB_CMDLINE_XEN_DEFAULT="$GRUB_CMDLINE_XEN_DEFAULT smt=off"' >> /etc/default/grub
+        grub2-mkconfig -o /boot/grub2/grub.cfg
+    fi
+    if ! grep -q gnttab_max_frames /etc/default/grub; then
+        echo 'GRUB_CMDLINE_XEN_DEFAULT="$GRUB_CMDLINE_XEN_DEFAULT gnttab_max_frames=2048 gnttab_max_maptrack_frames=4096"' >> /etc/default/grub
         grub2-mkconfig -o /boot/grub2/grub.cfg
     fi
 fi
