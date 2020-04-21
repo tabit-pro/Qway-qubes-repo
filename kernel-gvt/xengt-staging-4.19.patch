@@ -1682,7 +1682,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/vgpu.c b/drivers/gp
  	mutex_unlock(&vgpu->gvt->lock);
  }
  
-@@ -524,6 +524,9 @@ void intel_gvt_reset_vgpu_locked(struct
+@@ -530,6 +530,9 @@ void intel_gvt_reset_vgpu_locked(struct
  {
  	struct intel_gvt *gvt = vgpu->gvt;
  	struct intel_gvt_workload_scheduler *scheduler = &gvt->scheduler;
@@ -1692,7 +1692,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/vgpu.c b/drivers/gp
  	unsigned int resetting_eng = dmlr ? ALL_ENGINES : engine_mask;
  
  	gvt_dbg_core("------------------------------------------\n");
-@@ -556,6 +559,10 @@ void intel_gvt_reset_vgpu_locked(struct
+@@ -562,6 +565,10 @@ void intel_gvt_reset_vgpu_locked(struct
  
  		intel_vgpu_reset_mmio(vgpu, dmlr);
  		populate_pvinfo_page(vgpu);
@@ -1700,9 +1700,9 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/vgpu.c b/drivers/gp
 +			maddr;
 +		vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.nonmappable_gmadr.base)) =
 +			unmaddr;
- 		intel_vgpu_reset_display(vgpu);
  
  		if (dmlr) {
+ 			intel_vgpu_reset_display(vgpu);
 diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/gpu/drm/i915/gvt/xengt.c
 --- a/drivers/gpu/drm/i915/gvt/xengt.c	1970-01-01 03:00:00.000000000 +0300
 +++ b/drivers/gpu/drm/i915/gvt/xengt.c	2019-10-29 16:07:52.270554111 +0300

@@ -3,9 +3,9 @@
 #
 
 %define variant gvt.qubes
-%define plainrel 1
+%define plainrel 3
 %define rel %{plainrel}.%{variant}
-%define version 4.19.96
+%define version 4.19.114
 
 %define _buildshell /bin/bash
 %define build_xen       1
@@ -174,8 +174,8 @@ pathfix.py -i "%{__python3} %{py3_shbang_opts}" -p -n \
 cd %kernel_build_dir
 
 # Create QubesOS config kernel
+cat %{SOURCE102} >> %{SOURCE101}
 /bin/sh %{SOURCE34} %{SOURCE100} %{SOURCE101}
-/bin/sh %{SOURCE34} %{SOURCE100} %{SOURCE102}
 
 %build_src_dir/scripts/config \
         --set-str CONFIG_LOCALVERSION -%release.%cpu_arch %{setup_config}
@@ -291,11 +291,6 @@ rm -rf %buildroot/lib/modules/%kernelrelease/build/Documentation
 rm -rf %buildroot/lib/modules/%kernelrelease/build/scripts/tracing
 rm -f %buildroot/lib/modules/%kernelrelease/build/scripts/spdxcheck.py
 
-# disable GCC plugins for external modules build, to not fail if different gcc
-# version is used
-sed -e 's/^\(CONFIG_GCC_PLUGIN.*\)=y/# \1 is not set/' .config > \
-        %buildroot/lib/modules/%kernelrelease/build/.config
-
 rm -f %buildroot/lib/modules/%kernelrelease/build/scripts/*.o
 rm -f %buildroot/lib/modules/%kernelrelease/build/scripts/*/*.o
 
@@ -316,6 +311,14 @@ if [ -f tools/objtool/objtool ]; then
     popd
 fi
 
+# disable GCC plugins for external modules build, to not fail if different gcc
+# version is used
+sed -e 's/^\(CONFIG_GCC_PLUGIN.*\)=y/# \1 is not set/' .config > \
+        %buildroot/lib/modules/%kernelrelease/build/.config
+
+sed -e '/^#define CONFIG_GCC_PLUGIN/d' include/generated/autoconf.h > \
+        %buildroot/lib/modules/%kernelrelease/build/include/generated/autoconf.h
+
 # Copy .config to include/config/auto.conf so "make prepare" is unnecessary.
 cp %buildroot/lib/modules/%kernelrelease/build/.config %buildroot/lib/modules/%kernelrelease/build/include/config/auto.conf
 
@@ -323,6 +326,7 @@ cp %buildroot/lib/modules/%kernelrelease/build/.config %buildroot/lib/modules/%k
 # external modules can be built
 touch -r %buildroot/lib/modules/%kernelrelease/build/Makefile %buildroot/lib/modules/%kernelrelease/build/include/generated/uapi/linux/version.h
 touch -r %buildroot/lib/modules/%kernelrelease/build/.config %buildroot/lib/modules/%kernelrelease/build/include/config/auto.conf
+touch -r %buildroot/lib/modules/%kernelrelease/build/.config %buildroot/lib/modules/%kernelrelease/build/include/generated/autoconf.h
 
 if test -s vmlinux.id; then
 cp vmlinux.id %buildroot/lib/modules/%kernelrelease/build/vmlinux.id
