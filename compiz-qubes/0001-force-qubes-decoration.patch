@@ -1,0 +1,173 @@
+diff --git a/gtk-window-decorator/gtk-window-decorator.c b/gtk-window-decorator/gtk-window-decorator.c
+index f29e6484..21be0288 100644
+--- a/gtk-window-decorator/gtk-window-decorator.c
++++ b/gtk-window-decorator/gtk-window-decorator.c
+@@ -346,6 +346,51 @@ typedef struct _decor_color {
+ #define IN_EVENT_WINDOW      (1 << 0)
+ #define PRESSED_EVENT_WINDOW (1 << 1)
+ 
++enum
++{
++    QUBES_LABEL_DOM0 = 0,
++    QUBES_LABEL_RED = 1,
++    QUBES_LABEL_ORANGE = 2,
++    QUBES_LABEL_YELLOW = 3,
++    QUBES_LABEL_GREEN = 4,
++    QUBES_LABEL_GRAY = 5,
++    QUBES_LABEL_BLUE = 6,
++    QUBES_LABEL_PURPLE = 7,
++    QUBES_LABEL_BLACK = 8,
++    MAX_QUBES_LABELS = 9
++};
++
++/* RGB values */
++static const gdouble qubes_label_colors[] = {
++219.0/255.0, 219.0/255.0, 219.0/255.0, /* QUBES_LABEL_DOM0 */
++229.9/255.0, 229.9/255.0, 229.9/255.0, /* QUBES_LABEL_DOM0 shade max */
++186.2/255.0, 186.2/255.0, 186.2/255.0, /* QUBES_LABEL_DOM0 shade min */
++219.0/255.0, 48.0/255.0,  48.0/255.0, /* QUBES_LABEL_RED */
++225.0/255.0, 55.3/255.0,  55.3/255.0, /* QUBES_LABEL_RED shade max */
++181.3/255.0, 45.6/255.0,  45.6/255.0, /* QUBES_LABEL_RED shade min */
++255.0/255.0, 128.0/255.0, 0.0/255.0, /* QUBES_LABEL_ORANGE */
++255.0/255.0, 134.3/255.0, 12.7/255.0, /* QUBES_LABEL_ORANGE shade max */
++200.5/255.0, 108.7/255.0, 16.3/255.0, /* QUBES_LABEL_ORANGE shade min */
++219.0/255.0, 219.0/255.0, 4.0/255.0, /* QUBES_LABEL_YELLOW */
++234.1/255.0, 234.1/255.0, 0.0/255.0, /* QUBES_LABEL_YELLOW shade max */
++172.4/255.0, 172.4/255.0, 17.1/255.0, /* QUBES_LABEL_YELLOW shade min */
++  4.0/255.0, 200.0/255.0, 4.0/255.0, /* QUBES_LABEL_GREEN */
++  0.0/255.0, 214.2/255.0, 0.0/255.0, /* QUBES_LABEL_GREEN shade max */
++ 15.9/255.0, 157.5/255.0, 15.9/255.0, /* QUBES_LABEL_GREEN shade min */
++150.0/255.0, 150.0/255.0, 150.0/255.0, /* QUBES_LABEL_GRAY */
++157.5/255.0, 157.5/255.0, 157.5/255.0, /* QUBES_LABEL_GRAY shade max */
++127.5/255.0, 127.5/255.0, 127.5/255.0, /* QUBES_LABEL_GRAY shade min */
++ 48.0/255.0, 105.0/255.0, 220.0/255.0, /* QUBES_LABEL_BLUE */
++ 55.4/255.0, 111.9/255.0, 226.0/255.0, /* QUBES_LABEL_BLUE shade max */
++ 45.1/255.0, 90.7/255.0,  182.7/255.0, /* QUBES_LABEL_BLUE shade min */
++ 99.0/255.0, 0.0/255.0,   99.0/255.0, /* QUBES_LABEL_PURPLE */
++103.9/255.0, 0.0/255.0,   103.9/255.0, /* QUBES_LABEL_PURPLE shade max */
++ 77.8/255.0, 6.3/255.0,   77.8/255.0, /* QUBES_LABEL_PURPLE shade min */
++  0.0/255.0, 0.0/255.0,   0.0/255.0, /* QUBES_LABEL_BLACK */
++  0.0/255.0, 0.0/255.0,   0.0/255.0, /* QUBES_LABEL_BLACK shade max */
++  0.0/255.0, 0.0/255.0,   0.0/255.0 /* QUBES_LABEL_BLACK shade min */
++};
++
+ typedef struct _decor {
+     Window	      event_windows[3][3];
+     Window	      button_windows[BUTTON_NUM];
+@@ -362,6 +407,7 @@ typedef struct _decor {
+     gint	      height;
+     gint	      client_width;
+     gint	      client_height;
++    gint	      qubes_label;
+     gboolean	      decorated;
+     gboolean	      active;
+     PangoLayout	      *layout;
+@@ -942,10 +988,14 @@ button_state_paint (cairo_t	    *cr,
+ 
+     if ((state & IN_STATE) == IN_STATE)
+     {
++/*
+ 	if (state & IN_EVENT_WINDOW)
+ 	    cairo_set_source_rgb (cr, 1.0, 1.0, 1.0);
+ 	else
+ 	    cairo_set_source_rgba (cr, color->r, color->g, color->b, 0.95);
++*/
++	//force using white controls
++	cairo_set_source_rgb (cr, 1.0, 1.0, 1.0);
+ 
+ 	cairo_fill_preserve (cr);
+ 
+@@ -973,11 +1023,14 @@ button_state_paint (cairo_t	    *cr,
+ 					  STROKE_ALPHA);
+ #endif
+ 	cairo_stroke_preserve (cr);
+-
++/*
+ 	if (state & IN_EVENT_WINDOW)
+ 	    cairo_set_source_rgb (cr, 1.0, 1.0, 1.0);
+ 	else
+ 	    cairo_set_source_rgba (cr, color->r, color->g, color->b, 0.95);
++*/
++	//force using white controls
++	cairo_set_source_rgb (cr, 1.0, 1.0, 1.0);
+ 
+ 	cairo_fill (cr);
+     }
+@@ -994,6 +1047,34 @@ copy_to_front_buffer (decor_t *d)
+     cairo_paint (d->cr);
+ }
+ 
++static int get_qubes_label (Window win)
++{
++    GdkDisplay  *gdkdisplay = gdk_display_get_default ();
++    Display	*xdisplay = gdk_x11_display_get_xdisplay (gdkdisplay);
++    Atom	atom_label;
++
++    atom_label = XInternAtom(xdisplay, "_QUBES_LABEL", TRUE);
++
++    if (atom_label != 0)
++    {
++	Atom actual_type;
++        int actual_format;
++        unsigned long nitems = 0, bytes_left;
++        char *data = 0;
++
++        if ((XGetWindowProperty (xdisplay, win, atom_label, 0L, 1L,
++                        FALSE, AnyPropertyType, &actual_type, &actual_format, &nitems,
++                        &bytes_left, (unsigned char **) &data) == Success))
++        {
++            if (nitems == 1)
++	    {
++		return (int)*data;
++            }
++        }
++    }
++    return QUBES_LABEL_DOM0;
++}
++
+ static void
+ draw_window_decoration (decor_t *d)
+ {
+@@ -1032,9 +1113,17 @@ draw_window_decoration (decor_t *d)
+ 	corners = 0;
+ 
+ #if GTK_CHECK_VERSION (3, 0, 0)
+-    color.r = bg.red;
+-    color.g = bg.green;
+-    color.b = bg.blue;
++    color.r = qubes_label_colors[d->qubes_label*9+0];
++    color.g = qubes_label_colors[d->qubes_label*9+1];
++    color.b = qubes_label_colors[d->qubes_label*9+2];
++
++    _title_color[0].r = qubes_label_colors[d->qubes_label*9+3];
++    _title_color[0].g = qubes_label_colors[d->qubes_label*9+4];
++    _title_color[0].b = qubes_label_colors[d->qubes_label*9+5];
++    _title_color[1].r = qubes_label_colors[d->qubes_label*9+6];
++    _title_color[1].g = qubes_label_colors[d->qubes_label*9+7];
++    _title_color[1].b = qubes_label_colors[d->qubes_label*9+8];
++
+ #else
+     color.r = style->bg[GTK_STATE_NORMAL].red   / 65535.0;
+     color.g = style->bg[GTK_STATE_NORMAL].green / 65535.0;
+@@ -4377,6 +4466,8 @@ window_opened (WnckScreen *screen,
+     wnck_window_get_client_window_geometry (win, NULL, NULL,
+ 					    &d->client_width,
+ 					    &d->client_height);
++    //qubes label
++    d->qubes_label = get_qubes_label(wnck_window_get_xid(win));
+ 
+     d->draw = theme_draw_window_decoration;
+ 
+@@ -5991,6 +6082,9 @@ shade (const decor_color_t *a,
+ static void
+ update_style (GtkWidget *widget)
+ {
++    // no need to setup _title_color[]
++    return;
++
+     decor_color_t spot_color;
+ #if GTK_CHECK_VERSION (3, 0, 0)
+     GtkStyleContext *context;
+-- 
+2.17.2
+

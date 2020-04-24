@@ -1,0 +1,30 @@
+diff --git a/gtk-window-decorator/gtk-window-decorator.c b/gtk-window-decorator/gtk-window-decorator.c
+index 21be0288..9493f79a 100644
+--- a/gtk-window-decorator/gtk-window-decorator.c
++++ b/gtk-window-decorator/gtk-window-decorator.c
+@@ -594,7 +594,9 @@ decor_update_window_property (decor_t *d)
+     decor_quads_to_property (data, n - 1,
+ 			     cairo_xlib_surface_get_drawable (d->surface),
+ 			     &extents, &extents, &extents, &extents,
+-			     ICON_SPACE + d->button_width, 0, quads, nQuad,
++			     //ICON_SPACE + d->button_width, 0, quads, nQuad,
++			     //decor even minimal
++			     0, 0, quads, nQuad,
+ 			     frame_type, frame_state, frame_actions);
+ 
+     gdk_error_trap_push ();
+@@ -3844,8 +3846,9 @@ calc_decoration_size (decor_t *d,
+ 
+     calc_button_size (d);
+ 
+-    if (w < ICON_SPACE + d->button_width)
+-	return FALSE;
++    //decore even minimal
++    //if (w < ICON_SPACE + d->button_width)
++	//return FALSE;
+ 
+     top_width = name_width + d->button_width + ICON_SPACE;
+     if (w < top_width)
+-- 
+2.17.2
+

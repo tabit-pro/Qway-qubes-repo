@@ -1,0 +1,99 @@
+diff --git a/gtk-window-decorator/gtk-window-decorator.c b/gtk-window-decorator/gtk-window-decorator.c
+index 9493f79a..e3203f65 100644
+--- a/gtk-window-decorator/gtk-window-decorator.c
++++ b/gtk-window-decorator/gtk-window-decorator.c
+@@ -3656,37 +3656,6 @@ wnck_window_get_real_name (WnckWindow *win)
+ }
+ #define wnck_window_get_name wnck_window_get_real_name
+ 
+-static gint
+-max_window_name_width (WnckWindow *win)
+-{
+-    decor_t     *d = g_object_get_data (G_OBJECT (win), "decor");
+-    const gchar *name;
+-    gint	w;
+-
+-    if (!d->layout)
+-    {
+-	d->layout = pango_layout_new (pango_context);
+-	if (!d->layout)
+-	    return 0;
+-
+-	pango_layout_set_wrap (d->layout, PANGO_WRAP_CHAR);
+-    }
+-
+-    name = wnck_window_get_name (win);
+-    if (!name)
+-	return 0;
+-
+-    pango_layout_set_auto_dir (d->layout, FALSE);
+-    pango_layout_set_width (d->layout, -1);
+-    pango_layout_set_text (d->layout, name, strlen (name));
+-    pango_layout_get_pixel_size (d->layout, &w, NULL);
+-
+-    if (d->name)
+-	pango_layout_set_text (d->layout, d->name, strlen (d->name));
+-
+-    return w + 6;
+-}
+-
+ static void
+ update_window_decoration_name (WnckWindow *win)
+ {
+@@ -3702,6 +3671,16 @@ update_window_decoration_name (WnckWindow *win)
+     }
+ 
+     name = wnck_window_get_name (win);
++    if (!d->layout)
++    {
++	d->layout = pango_layout_new (pango_context);
++	if (!d->layout)
++	    return 0;
++
++	pango_layout_set_wrap (d->layout, PANGO_WRAP_CHAR);
++	pango_layout_set_alignment(d->layout, PANGO_ALIGN_CENTER);
++    }
++
+     if (name && (name_length = strlen (name)))
+     {
+ 	gint w;
+@@ -3850,9 +3829,14 @@ calc_decoration_size (decor_t *d,
+     //if (w < ICON_SPACE + d->button_width)
+ 	//return FALSE;
+ 
+-    top_width = name_width + d->button_width + ICON_SPACE;
+-    if (w < top_width)
+-	top_width = MAX (ICON_SPACE + d->button_width, w);
++    if (name_width > 0)
++    {
++	top_width = name_width + d->button_width + ICON_SPACE;
++        if (w < top_width)
++	    top_width = MAX (ICON_SPACE + d->button_width, w);
++    }
++    else
++	top_width = w;
+ 
+     decor_get_default_layout (&window_context, top_width, 1, &layout);
+ 
+@@ -3959,16 +3943,14 @@ update_window_decoration_size (WnckWindow *win)
+     cairo_surface_t *surface = NULL, *buffer_surface = NULL;
+     Picture   picture;
+     gint      width, height;
+-    gint      w, h, name_width;
++    gint      w, h;
+     Display   *xdisplay;
+ 
+     xdisplay = GDK_DISPLAY_XDISPLAY (gdk_display_get_default ());
+ 
+     wnck_window_get_client_window_geometry (win, NULL, NULL, &w, &h);
+ 
+-    name_width = max_window_name_width (win);
+-
+-    if (!(*theme_calc_decoration_size) (d, w, h, name_width, &width, &height))
++    if (!(*theme_calc_decoration_size) (d, w, h, 0, &width, &height))
+     {
+ 	update_window_decoration_name (win);
+ 	return FALSE;
+-- 
+2.21.1
+

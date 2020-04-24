@@ -1,0 +1,14 @@
+diff --git a/gui-daemon/xside.c b/gui-daemon/xside.c
+index 3e12012..183302d 100644
+--- a/gui-daemon/xside.c
++++ b/gui-daemon/xside.c
+@@ -1115,6 +1121,9 @@ static void process_xevent_configure(Ghandles * g, const XConfigureEvent * ev)
+                 0, 0, &x, &y, &child);
+         if (g->log_level > 1)
+             fprintf(stderr, "  translated to %d/%d\n", x, y);
++    } else if (ev->width == 10 && ev->height == 17) {
++	fprintf(stderr, "compiz (core): drop 10x17 size #compizdecor\n");
++	return;
+     } else {
+         x = ev->x;
+         y = ev->y;

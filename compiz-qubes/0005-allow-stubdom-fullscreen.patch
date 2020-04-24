@@ -1,0 +1,22 @@
+diff --git a/src/window.c b/src/window.c
+index 8a379a06..94679d16 100644
+--- a/src/window.c
++++ b/src/window.c
+@@ -883,10 +883,15 @@ recalcWindowActions (CompWindow *w)
+ 
+     if (w->sizeHints.min_width  == w->sizeHints.max_width &&
+ 	w->sizeHints.min_height == w->sizeHints.max_height)
++    {
+ 	actions &= ~(CompWindowActionResizeMask	      |
+ 		     CompWindowActionMaximizeHorzMask |
+-		     CompWindowActionMaximizeVertMask |
+-		     CompWindowActionFullscreenMask);
++		     CompWindowActionMaximizeVertMask);
++
++	if (w->sizeHints.max_width != w->screen->width ||
++	    w->sizeHints.max_height != w->screen->height)
++		actions &= ~CompWindowActionFullscreenMask;
++    }
+ 
+     if (!(w->mwmFunc & MwmFuncAll))
+     {
