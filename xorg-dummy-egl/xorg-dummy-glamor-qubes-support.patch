@@ -1,0 +1,329 @@
+diff -bpruN a/configure.ac b/configure.ac
+--- a/configure.ac	2020-05-19 16:58:00.016804584 +0300
++++ b/configure.ac	2020-05-19 16:01:56.204980929 +0300
+@@ -60,6 +60,11 @@ XORG_DRIVER_CHECK_EXT(RENDER, renderprot
+ PKG_CHECK_MODULES(XORG, [xorg-server >= 1.4.99.901] xproto fontsproto $REQUIRED_MODULES)
+ 
+ # Checks for libraries.
++AC_CHECK_LIB([xengnttab], [xengntshr_open])
++
++# Checks for header files.
++AC_HEADER_STDC
++AC_CHECK_HEADER([xengnttab.h])
+ 
+ 
+ DRIVER_NAME=dummy-egl
+diff -bpruN a/src/dummy_driver.c b/src/dummy_driver.c
+--- a/src/dummy_driver.c	2020-05-19 16:58:00.016804584 +0300
++++ b/src/dummy_driver.c	2020-05-19 16:57:23.597795791 +0300
+@@ -48,6 +48,13 @@ Atom width_mm_atom = 0;
+ Atom height_mm_atom = 0;
+ #define HEIGHT_MM_NAME "HEIGHT_MM"
+ 
++/* glamor support */
++#define GLAMOR_FOR_XORG
++#include <glamor.h>
++#include <gbm.h>
++#include <unistd.h>
++#include <fcntl.h>
++
+ /* Mandatory functions */
+ static const OptionInfoRec *	DUMMYAvailableOptions(int chipid, int busid);
+ static void     DUMMYIdentify(int flags);
+@@ -114,11 +121,15 @@ static SymTabRec DUMMYChipsets[] = {
+ };
+ 
+ typedef enum {
++    OPTION_GUI_DOMID,
++    OPTION_RENDER,
+     OPTION_SW_CURSOR
+ } DUMMYOpts;
+ 
+ static const OptionInfoRec DUMMYOptions[] = {
+     { OPTION_SW_CURSOR,	"SWcursor",	OPTV_BOOLEAN,	{0}, FALSE },
++    { OPTION_RENDER,   "Render",       OPTV_STRING,    {0}, FALSE },
++    { OPTION_GUI_DOMID, "GUIDomID",     OPTV_INTEGER,   {0}, FALSE },
+     { -1,                  NULL,           OPTV_NONE,	{0}, FALSE }
+ };
+ 
+@@ -624,6 +635,7 @@ DUMMYPreInit(ScrnInfoPtr pScrn, int flag
+     xf86ProcessOptions(pScrn->scrnIndex, pScrn->options, dPtr->Options);
+ 
+     xf86GetOptValBool(dPtr->Options, OPTION_SW_CURSOR,&dPtr->swCursor);
++    xf86GetOptValInteger(dPtr->Options, OPTION_GUI_DOMID, (int*)&gui_domid);
+ 
+     if (device->videoRam != 0) {
+ 	pScrn->videoRam = device->videoRam;
+@@ -715,6 +727,28 @@ DUMMYPreInit(ScrnInfoPtr pScrn, int flag
+     pScrn->memPhysBase = 0;
+     pScrn->fbOffset = 0;
+ 
++    const char *render = xf86GetOptValString(dPtr->Options, OPTION_RENDER);
++    dPtr->glamor = FALSE;
++
++    if (!render)
++       xf86DrvMsg(pScrn->scrnIndex, X_ERROR, "Render option is not available\n");
++    else {
++       dPtr->fd = open(render, O_RDWR);
++       if (dPtr->fd < 0)
++           xf86DrvMsg(pScrn->scrnIndex, X_ERROR, "Open render %s fail\n", render);
++       else
++	   xf86LoadSubModule(pScrn, GLAMOR_EGL_MODULE_NAME);
++	   if (glamor_egl_init(pScrn, dPtr->fd)) {
++		xf86DrvMsg(pScrn->scrnIndex, X_INFO, "glamor initialized\n");
++		dPtr->glamor = TRUE;
++	   } else
++		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
++                       "glamor initialization failed\n");
++    }
++
++    if (!dPtr->glamor)
++       close(dPtr->fd);
++
+     return TRUE;
+ }
+ #undef RETURN
+@@ -767,6 +801,114 @@ DUMMYLoadPalette(
+ 
+ static ScrnInfoPtr DUMMYScrn; /* static-globalize it */
+ 
++static struct xf86_qubes_pixmap *
++qubes_alloc_pixmap_private(ScreenPtr pScreen, size_t size) {
++    struct xf86_qubes_pixmap *priv;
++    size_t pages;
++
++    pages = (size + XC_PAGE_SIZE - 1) >> XC_PAGE_SHIFT;
++
++    priv = calloc(1, sizeof(struct xf86_qubes_pixmap) + pages * sizeof(uint32_t));
++    if (priv == NULL)
++        return NULL;
++
++    priv->pages = pages;
++    priv->refs = (uint32_t *) (((uint8_t *) priv) + sizeof(struct xf86_qubes_pixmap));
++
++    priv->data = xengntshr_share_pages(xgs,
++                                       gui_domid,
++                                       pages,
++                                       priv->refs,
++                                       0);
++    if (priv->data == NULL) {
++        xf86DrvMsg(DUMMYScrn->scrnIndex, X_ERROR,
++                   "Failed to allocate %zu grant pages!\n", pages);
++        free(priv);
++        return NULL;
++    }
++
++    return priv;
++}
++
++static PixmapPtr
++qubes_create_pixmap(ScreenPtr pScreen, int width, int height, int depth,
++                    unsigned hint)
++{
++    PixmapPtr pixmap;
++    struct xf86_qubes_pixmap *priv;
++    size_t stride;
++    size_t size;
++
++    if (width == 0 || height == 0 || depth < 15)
++        return fbCreatePixmap(pScreen, width, height, depth, hint);
++
++    pixmap = fbCreatePixmap(pScreen, 0, 0, depth, hint);
++    if (!pixmap)
++        return NULL;
++
++    stride = PixmapBytePad(width, depth);
++    size = stride * height;
++
++    priv = qubes_alloc_pixmap_private(pScreen, size);
++    if (priv == NULL)
++        goto err_destroy_pixmap;
++    xf86_qubes_pixmap_set_private(pixmap, priv);
++
++    if (!pScreen->ModifyPixmapHeader(pixmap,
++                                    width,
++                                    height,
++                                    depth,
++                                    BitsPerPixel(depth),
++                                    stride,
++                                    priv->data))
++        goto err_unshare;
++
++    return pixmap;
++
++err_unshare:
++    xengntshr_unshare(xgs, priv->data, priv->pages);
++    // Also frees refs
++    free(priv);
++err_destroy_pixmap:
++    fbDestroyPixmap(pixmap);
++
++    return NULL;
++}
++
++static Bool
++qubes_create_screen_resources(ScreenPtr pScreen) {
++    ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
++    DUMMYPtr dPtr = DUMMYPTR(pScrn);
++
++    Bool ret = dPtr->CreateScreenResources(pScreen);
++
++    if (ret) {
++       PixmapPtr pixmap = pScreen->GetScreenPixmap(pScreen);
++       if (dPtr->glamor)
++           glamor_egl_create_textured_pixmap_from_gbm_bo(pixmap, dPtr->front_bo, FALSE);
++    }
++
++    return ret;
++}
++
++static void qubes_free_pixmap_private(struct xf86_qubes_pixmap *priv) {
++    xengntshr_unshare(xgs, priv->data, priv->pages);
++    // Also frees refs
++    free(priv);
++}
++
++Bool
++qubes_destroy_pixmap(PixmapPtr pixmap) {
++    struct xf86_qubes_pixmap *priv;
++
++    priv = xf86_qubes_pixmap_get_private(pixmap);
++    if (priv != NULL && pixmap->refcnt == 1) {
++        qubes_free_pixmap_private(priv);
++    }
++
++    return fbDestroyPixmap(pixmap);
++}
++
+ /* Mandatory */
+ static Bool
+ DUMMYScreenInit(SCREEN_INIT_ARGS_DECL)
+@@ -834,6 +976,59 @@ DUMMYScreenInit(SCREEN_INIT_ARGS_DECL)
+ 
+     xf86SetBlackWhitePixels(pScreen);
+ 
++    if (!xf86_qubes_pixmap_register_private())
++        return FALSE;
++
++    xgs = xengntshr_open(NULL, 0);
++    if (xgs == NULL) {
++        xf86DrvMsg(pScrn->scrnIndex, X_ERROR, "Failed to open xengntshr!\n");
++        return FALSE;
++    }
++
++    if (dPtr->glamor) {
++       uint32_t format;
++       if (pScrn->depth == 30)
++            format = GBM_FORMAT_ARGB2101010;
++        else
++            format = GBM_FORMAT_ARGB8888;
++
++       dPtr->gbm = glamor_egl_get_gbm_device(pScreen);
++       if (!dPtr->gbm)
++            xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
++                    "Failed to get gbm device.\n");
++       dPtr->front_bo = gbm_bo_create(dPtr->gbm,
++                    pScrn->virtualX, pScrn->virtualY,
++                    format,
++                    GBM_BO_USE_RENDERING | GBM_BO_USE_SCANOUT);
++       if (!dPtr->front_bo)
++            xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
++                    "Failed to create front buffer.\n");
++
++       if (!glamor_init(pScreen, GLAMOR_USE_EGL_SCREEN)) {
++            xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
++                   "Failed to initialize glamor at ScreenInit() time.\n");
++           dPtr->glamor = FALSE;
++       }
++       else {
++
++           XF86VideoAdaptorPtr     glamor_adaptor;
++
++           glamor_adaptor = glamor_xv_init(pScreen, 16);
++           if (glamor_adaptor != NULL)
++               xf86XVScreenInit(pScreen, &glamor_adaptor, 1);
++           else
++               xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
++                       "Failed to initialize XV support.\n");
++       }
++    }
++
++    pScreen->CreatePixmap = qubes_create_pixmap;
++    pScreen->DestroyPixmap = qubes_destroy_pixmap;
++    PictureScreenPtr ps = GetPictureScreenIfSet(pScreen);
++    ps->Glyphs = fbGlyphs;
++    dPtr->CreateScreenResources = pScreen->CreateScreenResources;
++    pScreen->CreateScreenResources = qubes_create_screen_resources;
++
+     /* initialize XRANDR */
+     xf86CrtcConfigInit(pScrn, &DUMMYCrtcConfigFuncs);
+     /* FIXME */
+@@ -970,6 +1165,10 @@ DUMMYCloseScreen(CLOSE_SCREEN_ARGS_DECL)
+     ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
+     DUMMYPtr dPtr = DUMMYPTR(pScrn);
+ 
++    if (dPtr->front_bo) {
++        gbm_bo_destroy(dPtr->front_bo);
++        dPtr->front_bo = NULL;
++    }
+     free(pScreen->GetScreenPixmap(pScreen)->devPrivate.ptr);
+ 
+     if (dPtr->CursorInfo)
+diff -bpruN a/src/dummy.h b/src/dummy.h
+--- a/src/dummy.h	2020-05-19 16:58:00.013804583 +0300
++++ b/src/dummy.h	2020-05-19 16:01:56.205980934 +0300
+@@ -13,6 +13,9 @@
+ 
+ #include "compat-api.h"
+ 
++#include <xengnttab.h>
++#include "xf86-qubes-common.h"
++
+ #define DUMMY_MAX_SCREENS 16
+ 
+ /* Supported chipsets */
+@@ -38,6 +41,9 @@ typedef struct _color
+     int blue;
+ } dummy_colors;
+ 
++struct gbm_device;
++struct gbm_bo;
++
+ typedef struct dummyRec 
+ {
+     /* XRANDR support begin */
+@@ -53,6 +59,12 @@ typedef struct dummyRec
+     /* proc pointer */
+     CloseScreenProcPtr CloseScreen;
+     xf86CursorInfoPtr CursorInfo;
++    CreateScreenResourcesProcPtr CreateScreenResources;
++    /* DRI support */
++    int fd;
++    Bool glamor;
++    struct gbm_device *gbm;
++    struct gbm_bo *front_bo;
+ 
+     Bool DummyHWCursorShown;
+     int cursorX, cursorY;
+diff -bpruN a/src/Makefile.am b/src/Makefile.am
+--- a/src/Makefile.am	2020-05-19 16:58:00.017804584 +0300
++++ b/src/Makefile.am	2020-05-19 16:01:56.206980939 +0300
+@@ -25,15 +25,16 @@
+ # _ladir passes a dummy rpath to libtool so the thing will actually link
+ # TODO: -nostdlib/-Bstatic/-lgcc platform magic, not installing the .a, etc.
+ 
+-AM_CFLAGS = $(XORG_CFLAGS) $(PCIACCESS_CFLAGS)
++AM_CFLAGS = $(XORG_CFLAGS) $(PCIACCESS_CFLAGS) $(GBM_CFLAGS)
+ 
+ dummyegl_drv_la_LTLIBRARIES = dummyegl_drv.la
+ dummyegl_drv_la_LDFLAGS = -module -avoid-version
+-dummyegl_drv_la_LIBADD = $(XORG_LIBS)
++dummyegl_drv_la_LIBADD = $(XORG_LIBS) $(GBM_LIBS)
+ dummyegl_drv_ladir = @moduledir@/drivers
+ 
+ dummyegl_drv_la_SOURCES = \
+          compat-api.h \
+          dummy_cursor.c \
+          dummy_driver.c \
++	  xf86-qubes-common.c \
+          dummy.h

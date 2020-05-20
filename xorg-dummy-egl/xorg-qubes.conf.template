@@ -1,0 +1,43 @@
+Section "Module"
+        Load "fb"
+        Load "glamoregl"
+EndSection
+
+Section "ServerLayout"   
+        Identifier     "Default Layout"
+        Screen      0  "Screen0" 0 0  
+        InputDevice "qubesdev"
+EndSection
+
+Section "Device"
+        Identifier  "Videocard0"
+        Driver      "dummyegl"
+        VideoRam %MEM%
+        Option "Render" "/dev/dri/renderD128"
+        Option "GUIDomID" "%GUI_DOMID%"
+EndSection
+
+Section "Monitor"
+        Identifier "Monitor0"
+        HorizSync %HSYNC_START%-%HSYNC_END%
+	VertRefresh %VREFR_START%-%VREFR_END%
+	Modeline "%RES%" %MODELINE% 
+EndSection
+
+Section "Screen"
+        Identifier "Screen0"
+        Device     "Videocard0"
+	Monitor    "Monitor0"
+        DefaultDepth     %DEPTH%
+        SubSection "Display"
+                Viewport   0 0
+                Depth     %DEPTH% 
+		Modes "%RES%" 
+        EndSubSection
+EndSection
+
+
+Section "InputDevice"
+        Identifier  "qubesdev"
+        Driver      "qubes"
+EndSection
