@@ -3,9 +3,19 @@
 #
 
 %define variant gvt.qubes
-%define plainrel 3
+%define plainrel 1
 %define rel %{plainrel}.%{variant}
-%define version 4.19.114
+%define version %(echo '5.4.41' | sed 's/~rc.*/.0/')
+%define upstream_version %(echo '5.4.41' | sed 's/~rc/-rc/')
+%if "%{version}" != "%{upstream_version}"
+%define prerelease 1
+%define rel 0.%(echo '5.4.41' | sed 's/.*~rc/rc/').%{plainrel}.%{variant}
+%else
+%define prerelease 0
+%define rel %{plainrel}.%{variant}
+%endif
+
+%define name_suffix -gvt
 
 %define _buildshell /bin/bash
 %define build_xen       1
@@ -13,19 +23,22 @@
 %global cpu_arch x86_64
 %define cpu_arch_flavor %cpu_arch
 
-%define kernelrelease %(echo %{version} | sed 's/^3\\.[0-9]\\+$/\\0.0/')-%rel.%cpu_arch
+%define kernelrelease %(echo %{upstream_version} | sed 's/^[0-9]\\.[0-9]\\+$/\\0.0/;s/-rc.*/.0/')-%rel.%cpu_arch
 %define my_builddir %_builddir/%{name}-%{version}
 
-%define build_src_dir %my_builddir/linux-%version
+%define build_src_dir %my_builddir/linux-%upstream_version
 %define src_install_dir /usr/src/kernels/%kernelrelease
 %define kernel_build_dir %my_builddir/linux-obj
-%define vm_install_dir /var/lib/qubes/vm-kernels/%version-%{plainrel}
+%define vm_install_dir /var/lib/qubes/vm-kernels/%upstream_version-%{plainrel}
 
 %define install_vdso 1
 %define debuginfodir /usr/lib/debug
 
 # debuginfo build is disabled by default to save disk space (it needs 2-3GB build time)
 %define with_debuginfo 0
+
+# Sign all modules
+%global signmodules 1
 
 %if !%{with_debuginfo}
 %global debug_package %{nil}
@@ -34,8 +47,7 @@
 %define setup_config --enable CONFIG_DEBUG_INFO --disable CONFIG_DEBUG_INFO_REDUCED
 %endif
 
-%define name_suffix -gvt
-%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-linux-kernel/stable-4.19
+%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-linux-kernel/v%{version}-1/
 
 Name:           kernel%{?name_suffix}
 Summary:        The Xen Kernel
@@ -51,13 +63,15 @@ BuildRequires:  qubes-kernel-vm-support
 BuildRequires:  dracut
 BuildRequires:  busybox
 BuildRequires:  bc
+BuildRequires:  openssl
 BuildRequires:  openssl-devel
+BuildRequires:  python3-devel
 BuildRequires:  gcc-plugin-devel
 BuildRequires:  elfutils-libelf-devel
 BuildRequires:  bison
 BuildRequires:  flex
 BuildRequires:  e2fsprogs
-BuildRequires:  openssl
+BuildRequires:  dkms
 
 # gcc with support for BTI mitigation
 %if 0%{?fedora} == 23
@@ -65,6 +79,7 @@ BuildRequires:  gcc >= 5.3.1-6.qubes1
 %else
 %if 0%{?fedora} == 25
 BuildRequires:  gcc >= 6.4.1-1.qubes1
+Requires:       xen-libs >= 2001:4.8.5-15
 %else
 BuildRequires:  gcc
 %endif
@@ -72,11 +87,6 @@ BuildRequires:  gcc
 
 # Needed for building GCC hardened plugins
 BuildRequires: gcc-c++
-
-# to use pathfix.py
-%if 0%{?fedora} >= 31
-BuildRequires: python3-devel
-%endif
 
 Provides:       multiversion(kernel)
 Provides:       %name = %kernelrelease
@@ -100,56 +110,67 @@ Conflicts:      lvm2 < 2.02.33
 Provides:       kernel = %kernelrelease
 Provides:       kernel-uname-r = %kernelrelease
 
-BuildRoot:      %{_tmppath}/%{name}-%{version}-build
 ExclusiveArch:  x86_64
 
-Source0:	https://mirrors.edge.kernel.org/pub/linux/kernel/v4.x/linux-%{version}.tar.xz
+%if !%{prerelease}
+Source0:        https://mirrors.edge.kernel.org/pub/linux/kernel/v5.x/linux-%{upstream_version}.tar.xz
+%else
+Source0:        https://mirrors.edge.kernel.org/pub/linux/kernel/v5.x/linux-%{upstream_version}.tar.gz
+%endif
+Source6:	https://codeload.github.com/roadrunner2/macbook12-spi-driver/tar.gz/ddfbc7733542b8474a0e8f593aba91e06542be4f#/macbook12-spi-driver-ddfbc7733542b8474a0e8f593aba91e06542be4f.tar.gz
 Source16:       %{patchurl}/guards
 Source17:       %{patchurl}/apply-patches
+Source18:       %{patchurl}/mod-sign.sh
 Source33:       %{patchurl}/check-for-config-changes
 Source34:       %{patchurl}/gen-config
 Source100:      %{patchurl}/config-base
 Source101:      %{patchurl}/config-qubes
 Source102:	config-gvt
+%define modsign_cmd %{SOURCE18}
 
-Patch0: %{patchurl}/0001-kbuild-AFTER_LINK.patch
-Patch1: %{patchurl}/0002-xen-netfront-detach-crash.patch
-Patch2: %{patchurl}/0003-mce-hide-EBUSY-initialization-error-on-Xen.patch
-Patch3: %{patchurl}/0004-Log-error-code-of-EVTCHNOP_bind_pirq-failure.patch
-Patch4: %{patchurl}/0005-pvops-respect-removable-xenstore-flag-for-block-devi.patch
-Patch5: %{patchurl}/0006-pvops-xen-blkfront-handle-FDEJECT-as-detach-request-.patch
-Patch6: %{patchurl}/0007-block-add-no_part_scan-module-parameter.patch
-Patch7: %{patchurl}/0008-xen-Add-RING_COPY_RESPONSE.patch
-Patch8: %{patchurl}/0009-xen-netfront-copy-response-out-of-shared-buffer-befo.patch
-Patch9: %{patchurl}/0010-xen-netfront-do-not-use-data-already-exposed-to-back.patch
-Patch10: %{patchurl}/0011-xen-netfront-add-range-check-for-Tx-response-id.patch
-Patch11: %{patchurl}/0012-xen-blkfront-make-local-copy-of-response-before-usin.patch
-Patch12: %{patchurl}/0013-xen-blkfront-prepare-request-locally-only-then-put-i.patch
-Patch13: %{patchurl}/0014-xen-pcifront-pciback-Update-pciif.h-with-err-and-res.patch
-Patch14: %{patchurl}/0015-xen-pciback-add-attribute-to-allow-MSI-enable-flag-w.patch
-Patch15: %{patchurl}/0016-drm-change-func-to-better-detect-wether-swiotlb-is-n.patch
-Patch16: %{patchurl}/0017-drm-amdgpu-fix-dma-mask-check-in-gmc_v6_0.c.patch
-Patch17: xengt-staging-4.19.patch
+
+Patch0: %{patchurl}/0001-xen-netfront-detach-crash.patch
+Patch1: %{patchurl}/0002-mce-hide-EBUSY-initialization-error-on-Xen.patch
+Patch2: %{patchurl}/0003-Log-error-code-of-EVTCHNOP_bind_pirq-failure.patch
+Patch3: %{patchurl}/0004-pvops-respect-removable-xenstore-flag-for-block-devi.patch
+Patch4: %{patchurl}/0005-pvops-xen-blkfront-handle-FDEJECT-as-detach-request-.patch
+Patch5: %{patchurl}/0006-block-add-no_part_scan-module-parameter.patch
+Patch6: %{patchurl}/0007-xen-Add-RING_COPY_RESPONSE.patch
+Patch7: %{patchurl}/0008-xen-netfront-copy-response-out-of-shared-buffer-befo.patch
+Patch8: %{patchurl}/0009-xen-netfront-do-not-use-data-already-exposed-to-back.patch
+Patch9: %{patchurl}/0010-xen-netfront-add-range-check-for-Tx-response-id.patch
+Patch10: %{patchurl}/0011-xen-blkfront-make-local-copy-of-response-before-usin.patch
+Patch11: %{patchurl}/0012-xen-blkfront-prepare-request-locally-only-then-put-i.patch
+Patch12: %{patchurl}/0013-xen-pcifront-pciback-Update-pciif.h-with-err-and-res.patch
+Patch13: %{patchurl}/0014-xen-pciback-add-attribute-to-allow-MSI-enable-flag-w.patch
+Patch14: %{patchurl}/0015-xen-events-avoid-NULL-pointer-dereference-in-evtchn_.patch
+Patch15: %{patchurl}/0016-gcc-common.h-params.h-has-been-dropped-in-GCC10.patch
+
+%if 0%{?fedora} == 32
+Patch16: %{patchurl}/x86-fix-early-boot-crash-on-gcc-10.patch
+%endif
+
+Patch22: gvt-xengt-2019y-11m-04d-10h-42m-58s.patch
+Patch23: gvt-xengt-topic-5.4-fix.patch
 
 %description
 Qubes Dom0 kernel.
 
 %prep
-if ! [ -e %_sourcedir/linux-%version.tar.xz ]; then
-    echo "The %name-%version.nosrc.rpm package does not contain the" \
-         "complete sources. Please install kernel-source-%version.src.rpm."
-    exit 1
-fi
-
 SYMBOLS="xen-dom0 pvops"
 
 # Unpack all sources and patches
 %autosetup -N -c -T -a 0
 
+export LINUX_UPSTREAM_VERSION=%{upstream_version}
+
 mkdir -p %kernel_build_dir
 
-cd linux-%version
+cd linux-%upstream_version
 %autopatch -p1
+
+# drop EXTRAVERSION - possible -rc suffix already included in %release
+sed -i -e 's/^EXTRAVERSION = -rc.*/EXTRAVERSION =/' Makefile
 
 %if 0%{?fedora} >= 31
 # Mangle /usr/bin/python shebangs to /usr/bin/python3
@@ -168,19 +189,23 @@ pathfix.py -i "%{__python3} %{py3_shbang_opts}" -p -n \
 	tools/perf/tests/attr.py \
 	tools/perf/scripts/python/stat-cpi.py \
 	tools/perf/scripts/python/sched-migration.py \
-	Documentation
+	Documentation \
+	scripts/gen_compile_commands.py
 %endif
 
 cd %kernel_build_dir
 
+chmod u+x %{S:18}
+chmod u+x %{S:34}
+
 # Create QubesOS config kernel
-cat %{SOURCE102} >> %{SOURCE101}
-/bin/sh %{SOURCE34} %{SOURCE100} %{SOURCE101}
+cat %{S:102} %{S:101} > config-tmp
+%{SOURCE34} %{SOURCE100} config-tmp
 
 %build_src_dir/scripts/config \
         --set-str CONFIG_LOCALVERSION -%release.%cpu_arch %{setup_config}
 
-MAKE_ARGS="$MAKE_ARGS -C %build_src_dir O=$PWD"
+MAKE_ARGS="$MAKE_ARGS -C %build_src_dir O=$PWD KERNELRELEASE=%{kernelrelease}"
 
 make prepare $MAKE_ARGS
 make scripts $MAKE_ARGS
@@ -202,19 +227,13 @@ if [ -n "$u2mfn_ver" ]; then
     cp -r /usr/src/u2mfn-$u2mfn_ver %_builddir/u2mfn
 fi
 
+rm -rf %_builddir/macbook12-spi-driver
+tar -x -C %_builddir -zf %{SOURCE6}
+mv %_builddir/$(basename %{SOURCE6} .tar.gz) %_builddir/macbook12-spi-driver
+
 %build
 
 cd %kernel_build_dir
-
-# This override tweaks the kernel makefiles so that we run debugedit on an
-# object before embedding it.  When we later run find-debuginfo.sh, it will
-# run debugedit again.  The edits it does change the build ID bits embedded
-# in the stripped object, but repeating debugedit is a no-op.  We do it
-# beforehand to get the proper final build ID bits into the embedded image.
-# This affects the vDSO images in vmlinux, and the vmlinux image in bzImage.
-export AFTER_LINK=\
-'sh -xc "/usr/lib/rpm/debugedit -b $$RPM_BUILD_DIR -d /usr/src/debug \
-                    -i $@ > $@.id"'
 
 make %{?_smp_mflags} all $MAKE_ARGS CONFIG_DEBUG_SECTION_MISMATCH=y
 
@@ -222,6 +241,31 @@ make %{?_smp_mflags} all $MAKE_ARGS CONFIG_DEBUG_SECTION_MISMATCH=y
 if [ -d "%_builddir/u2mfn" ]; then
     make -C %kernel_build_dir M=%_builddir/u2mfn modules
 fi
+
+# Build applespi, apple-ibridge, apple-ib-tb, apple-ib-als modules
+if [ -d "%_builddir/macbook12-spi-driver" ]; then
+    make -C %kernel_build_dir M=%_builddir/macbook12-spi-driver modules
+fi
+
+%define __modsign_install_post \
+  if [ "%{signmodules}" -eq "1" ]; then \
+    %{modsign_cmd} certs/signing_key.pem certs/signing_key.x509 $RPM_BUILD_ROOT/lib/modules/%kernelrelease/ \
+  fi \
+%{nil}
+
+#
+# Disgusting hack alert! We need to ensure we sign modules *after* all
+# invocations of strip occur, which is in __debug_install_post if
+# find-debuginfo.sh runs, and __os_install_post if not.
+#
+
+%define __spec_install_post \
+  %{?__debug_package:%{__debug_install_post}}\
+  %{__arch_install_post}\
+  %{__os_install_post}\
+  %{?__remove_unwanted_dbginfo_install_post}\
+  %{__modsign_install_post}
+
 
 %install
 
@@ -258,6 +302,9 @@ gzip -c9 < Module.symvers > %buildroot/boot/symvers-%kernelrelease.gz
 make modules_install $MAKE_ARGS INSTALL_MOD_PATH=%buildroot
 if [ -d "%_builddir/u2mfn" ]; then
     make modules_install $MAKE_ARGS INSTALL_MOD_PATH=%buildroot M=%_builddir/u2mfn
+fi
+if [ -d "%_builddir/macbook12-spi-driver" ]; then
+    make modules_install $MAKE_ARGS INSTALL_MOD_PATH=%buildroot M=%_builddir/macbook12-spi-driver
 fi
 
 mkdir -p %buildroot/%src_install_dir
@@ -315,7 +362,6 @@ fi
 # version is used
 sed -e 's/^\(CONFIG_GCC_PLUGIN.*\)=y/# \1 is not set/' .config > \
         %buildroot/lib/modules/%kernelrelease/build/.config
-
 sed -e '/^#define CONFIG_GCC_PLUGIN/d' include/generated/autoconf.h > \
         %buildroot/lib/modules/%kernelrelease/build/include/generated/autoconf.h
 
@@ -467,7 +513,7 @@ if [ -n "$SOURCE_DATE_EPOCH" ]; then
 fi
 PATH="/sbin:$PATH" mkfs.ext3 -d %buildroot%vm_install_dir/modules \
       -U dcee2318-92bd-47a5-a15d-e79d1412cdce \
-      %buildroot%vm_install_dir/modules.img 500M
+      %buildroot%vm_install_dir/modules.img 1024M
 rm -rf %buildroot%vm_install_dir/modules
 %endif
 
@@ -603,18 +649,18 @@ if [ "$current_default_package" = "%{name}-qubes-vm" ]; then
 
 # If qubes-prefs isn't installed yet, the default kernel will be set by %post
 # of qubes-core-dom0
-type qubes-prefs &>/dev/null && qubes-prefs --set default-kernel %version-%plainrel
+type qubes-prefs &>/dev/null && qubes-prefs --set default-kernel %upstream_version-%plainrel
 fi
 
 exit 0
 
 %preun qubes-vm
 
-if [ "`qubes-prefs -g default-kernel`" == "%version-%plainrel" ]; then
+if [ "`qubes-prefs -g default-kernel`" == "%upstream_version-%plainrel" ]; then
     echo "This kernel version is set as default VM kernel, cannot remove"
     exit 1
 fi
-if qvm-ls --kernel | grep -qw "%version-%plainrel"; then
+if qvm-ls --kernel | grep -qw "%upstream_version-%plainrel"; then
     echo "This kernel version is used by at least one VM, cannot remove"
     exit 1
 fi
@@ -637,156 +683,3 @@ exit 0
 %attr(0644, root, root) %vm_install_dir/default-kernelopts-common.txt
 
 %changelog
-* Sat Dec 14 2019 Qubes OS Team <qubes-devel@groups.google.com>
-- For complete changelog see: https://github.com/QubesOS/qubes-
-
-* Sat Dec 14 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 6fb9f41
-- Update to kernel-4.19.89
-
-* Sun Dec 01 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 3ad8270
-- Merge remote-tracking branch 'origin/pr/124' into stable-4.19
-
-* Sat Nov 30 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 6692042
-- Update to kernel-4.19.86
-
-* Sun Nov 24 2019 Frédéric Pierret (fepitre) <frederic.pierret@qubes-os.org> - 5cf3b2a
-- spec: mangle /usr/bin/python shebangs to /usr/bin/python3
-
-* Sat Nov 16 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 4dc1e91
-- Update to kernel-4.19.84
-
-* Mon Nov 11 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 6c00f3b
-- Merge remote-tracking branch 'origin/pr/114' into stable-4.19
-
-* Mon Nov 11 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 07374eb
-- Disable GCC plugins for out of tree kernel modules
-
-* Sat Nov 09 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 870975b
-- Update to kernel-4.19.82
-
-* Sat Nov 02 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 55de5a6
-- Update to kernel-4.19.81
-
-* Sat Oct 19 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 97292cd
-- Update to kernel-4.19.80
-
-* Sat Oct 12 2019 fepitre-bot <fepitre-bot@qubes-os.org> - e8db5c9
-- Update to kernel-4.19.79
-
-* Sat Oct 05 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 22bc9d2
-- Update to kernel-4.19.76
-
-* Sat Sep 21 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 89845eb
-- Update to kernel-4.19.74
-
-* Tue Sep 17 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - fd29026
-- Merge remote-tracking branch 'origin/pr/92' into stable-4.19
-
-* Sun Sep 15 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 189588b
-- rpm: set default kernel version based on package flavor
-
-* Sat Sep 14 2019 fepitre-bot <fepitre-bot@qubes-os.org> - cd54eb1
-- Update to kernel-4.19.72
-
-* Sat Sep 07 2019 fepitre-bot <fepitre-bot@qubes-os.org> - b9d1274
-- Update to kernel-4.19.71
-
-* Fri Aug 16 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 80cca5b
-- Update to kernel-4.19.67
-
-* Sat Jul 27 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 95ef045
-- Update to kernel-4.19.61
-
-* Sat Jul 20 2019 fepitre-bot <fepitre-bot@qubes-os.org> - f3efd1d
-- Update to kernel-4.19.59
-
-* Sat Jul 13 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 67040fe
-- Update to kernel-4.19.58
-
-* Sat Jul 06 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 009baa7
-- Update to kernel-4.19.57
-
-* Sat Jun 29 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 39ce308
-- Update to kernel-4.19.56
-
-* Sat Jun 22 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 892ce7b
-- Update to kernel-4.19.54
-
-* Sat Jun 15 2019 fepitre-bot <fepitre-bot@qubes-os.org> - cba881e
-- Update to kernel-4.19.50
-
-* Mon Jun 10 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 0db8239
-- version 4.19.48-2
-
-* Sun Jun 09 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - d1a6761
-- Merge remote-tracking branch 'origin/pr/58' into stable-4.19
-
-* Sun Jun 09 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 734ee7c
-- Support a build without u2mfn module
-
-* Sat Jun 08 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 0bdff73
-- Update to kernel-4.19.48
-
-* Sat Jun 01 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 8b4d479
-- Update to kernel-4.19.47
-
-* Tue May 28 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 38d24af
-- version 4.19.46-3
-
-* Tue May 28 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 706876a
-- Apply follow up fix for amdgpu driver
-
-* Tue May 28 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - f6b5a20
-- version 4.19.46-2
-
-* Tue May 28 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 606a117
-- Really apply the amdgpu patch
-
-* Tue May 28 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 670e767
-- version 4.19.46-1
-
-* Mon May 27 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 96657ad
-- Backport fix for amdgpu driver on Xen PV (including dom0)
-
-* Sat May 25 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 0e4e2cf
-- Update to kernel-4.19.45
-
-* Wed May 15 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - fedad27
-- version 4.19.43-1
-
-* Wed May 15 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 02beadc
-- Fix setting default kernel for VM
-
-* Sat May 11 2019 fepitre-bot <fepitre-bot@qubes-os.org> - c799530
-- Update to kernel-4.19.42
-
-* Sat May 04 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 5e5e03e
-- Update to kernel-4.19.39
-
-* Sat Apr 20 2019 fepitre-bot <fepitre-bot@qubes-os.org> - 8fd5151
-- Update to kernel-4.19.36
-
-* Sat Apr 06 2019 fepitre-bot <fepitre-bot@qubes-os.org> - d642d1d
-- Update to kernel-4.19.34
-
-* Tue Mar 19 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 738ddf8
-- version 4.19.29-1
-
-* Tue Mar 19 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - f390299
-- rpm: build modules.img at package build time only on new system
-
-* Tue Mar 19 2019 Frédéric Pierret (fepitre) <frederic.pierret@qubes-os.org> - ad9f337
-- plymouth: ignore serial console hvc0 in UEFI
-
-* Tue Mar 19 2019 Frédéric Pierret (fepitre) <frederic.pierret@qubes-os.org> - 4111545
-- Ensure the rebuild of grub.cfg with plymouth.ignore-serial-consoles
-
-* Tue Mar 19 2019 Frédéric Pierret (fepitre) <frederic.pierret@qubes-os.org> - cb45298
-- plymouth-ignore-serial-consoles: adjusting the method from marmarek suggestion
-
-* Tue Mar 19 2019 Frédéric Pierret (fepitre) <frederic.pierret@qubes-os.org> - ac27fed
-- plymouth: ignore serial console hvc0
-
-* Tue Mar 19 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com> - 6fa02f0
-- Include default-kernelopts-common.txt with kernel-specific default options
-

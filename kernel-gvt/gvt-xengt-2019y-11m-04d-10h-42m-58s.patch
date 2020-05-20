@@ -1,7 +1,7 @@
-diff -uNrp -x '*.orig' -x '*.rej' a/arch/x86/include/asm/xen/hypercall.h b/arch/x86/include/asm/xen/hypercall.h
---- a/arch/x86/include/asm/xen/hypercall.h	2019-10-17 23:45:44.000000000 +0300
-+++ b/arch/x86/include/asm/xen/hypercall.h	2019-10-29 16:07:52.264554097 +0300
-@@ -416,6 +416,14 @@ HYPERVISOR_hvm_op(int op, void *arg)
+diff -bpruN a/arch/x86/include/asm/xen/hypercall.h b/arch/x86/include/asm/xen/hypercall.h
+--- a/arch/x86/include/asm/xen/hypercall.h	2020-05-02 18:26:50.000000000 +0300
++++ b/arch/x86/include/asm/xen/hypercall.h	2020-05-13 22:55:11.107603219 +0300
+@@ -423,6 +423,14 @@ HYPERVISOR_hvm_op(int op, void *arg)
  }
  
  static inline int
@@ -16,12 +16,12 @@ diff -uNrp -x '*.orig' -x '*.rej' a/arch/x86/include/asm/xen/hypercall.h b/arch/
  HYPERVISOR_tmem_op(
  	struct tmem_op *op)
  {
-diff -uNrp -x '*.orig' -x '*.rej' a/arch/x86/include/asm/xen/hypervisor.h b/arch/x86/include/asm/xen/hypervisor.h
---- a/arch/x86/include/asm/xen/hypervisor.h	2019-10-17 23:45:44.000000000 +0300
-+++ b/arch/x86/include/asm/xen/hypervisor.h	2019-10-29 16:07:52.264554097 +0300
-@@ -48,7 +48,11 @@ extern bool xen_hvm_need_lapic(void);
+diff -bpruN a/arch/x86/include/asm/xen/hypervisor.h b/arch/x86/include/asm/xen/hypervisor.h
+--- a/arch/x86/include/asm/xen/hypervisor.h	2020-05-02 18:26:50.000000000 +0300
++++ b/arch/x86/include/asm/xen/hypervisor.h	2020-05-13 22:55:11.107603219 +0300
+@@ -48,7 +48,11 @@ extern bool __init xen_hvm_need_lapic(vo
  
- static inline bool xen_x2apic_para_available(void)
+ static inline bool __init xen_x2apic_para_available(void)
  {
 +#ifdef CONFIG_XEN_PVHVM
  	return xen_hvm_need_lapic();
@@ -30,10 +30,10 @@ diff -uNrp -x '*.orig' -x '*.rej' a/arch/x86/include/asm/xen/hypervisor.h b/arch
 +#endif
  }
  #else
- static inline bool xen_x2apic_para_available(void)
-diff -uNrp -x '*.orig' -x '*.rej' a/arch/x86/include/asm/xen/interface.h b/arch/x86/include/asm/xen/interface.h
---- a/arch/x86/include/asm/xen/interface.h	2019-10-17 23:45:44.000000000 +0300
-+++ b/arch/x86/include/asm/xen/interface.h	2019-10-29 16:07:52.264554097 +0300
+ static inline bool __init xen_x2apic_para_available(void)
+diff -bpruN a/arch/x86/include/asm/xen/interface.h b/arch/x86/include/asm/xen/interface.h
+--- a/arch/x86/include/asm/xen/interface.h	2020-05-02 18:26:50.000000000 +0300
++++ b/arch/x86/include/asm/xen/interface.h	2020-05-13 22:55:11.108603222 +0300
 @@ -86,6 +86,7 @@ typedef long xen_long_t;
  /* Guest handles for primitive C types. */
  __DEFINE_GUEST_HANDLE(uchar, unsigned char);
@@ -42,22 +42,13 @@ diff -uNrp -x '*.orig' -x '*.rej' a/arch/x86/include/asm/xen/interface.h b/arch/
  DEFINE_GUEST_HANDLE(char);
  DEFINE_GUEST_HANDLE(int);
  DEFINE_GUEST_HANDLE(void);
-diff -uNrp -x '*.orig' -x '*.rej' a/arch/x86/xen/mmu.c b/arch/x86/xen/mmu.c
---- a/arch/x86/xen/mmu.c	2019-10-17 23:45:44.000000000 +0300
-+++ b/arch/x86/xen/mmu.c	2019-10-29 16:07:52.265554100 +0300
-@@ -2,6 +2,7 @@
- #include <asm/xen/page.h>
- #include <asm/xen/hypercall.h>
- #include <xen/interface/memory.h>
-+#include <linux/vmalloc.h>
- 
- #include "multicalls.h"
- #include "mmu.h"
-@@ -235,3 +236,86 @@ int xen_unmap_domain_gfn_range(struct vm
- 	return -EINVAL;
+diff -bpruN a/arch/x86/xen/mmu_pv.c b/arch/x86/xen/mmu_pv.c
+--- a/arch/x86/xen/mmu_pv.c	2020-05-02 18:26:50.000000000 +0300
++++ b/arch/x86/xen/mmu_pv.c	2020-05-13 22:55:11.108603222 +0300
+@@ -2791,6 +2791,89 @@ out:
  }
- EXPORT_SYMBOL_GPL(xen_unmap_domain_gfn_range);
-+
+ EXPORT_SYMBOL_GPL(xen_remap_pfn);
+ 
 +/* Note: here 'mfn' is actually gfn!!! */
 +struct vm_struct * xen_remap_domain_mfn_range_in_kernel(unsigned long mfn,
 +		int nr, unsigned domid)
@@ -140,43 +131,14 @@ diff -uNrp -x '*.orig' -x '*.rej' a/arch/x86/xen/mmu.c b/arch/x86/xen/mmu.c
 +	xen_flush_tlb_all();
 +}
 +EXPORT_SYMBOL_GPL(xen_unmap_domain_mfn_range_in_kernel);
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/Kconfig b/drivers/gpu/drm/i915/Kconfig
---- a/drivers/gpu/drm/i915/Kconfig	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/Kconfig	2019-10-29 16:07:52.265554100 +0300
-@@ -128,6 +128,15 @@ config DRM_I915_GVT_KVMGT
- 	  Choose this option if you want to enable KVMGT support for
- 	  Intel GVT-g.
- 
-+config DRM_I915_GVT_XENGT
-+	tristate "Enable XEN support for Intel GVT-g"
-+	depends on DRM_I915_GVT
-+	depends on XEN
-+	default n
-+	help
-+	  Choose this option if you want to enable XENGT support for
-+	  Intel GVT-g under XEN hypervisor environment.
 +
- menu "drm/i915 Debugging"
- depends on DRM_I915
- depends on EXPERT
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/Makefile b/drivers/gpu/drm/i915/gvt/Makefile
---- a/drivers/gpu/drm/i915/gvt/Makefile	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/Makefile	2019-10-29 16:07:52.265554100 +0300
-@@ -3,8 +3,9 @@ GVT_DIR := gvt
- GVT_SOURCE := gvt.o aperture_gm.o handlers.o vgpu.o trace_points.o firmware.o \
- 	interrupt.o gtt.o cfg_space.o opregion.o mmio.o display.o edid.o \
- 	execlist.o scheduler.o sched_policy.o mmio_context.o cmd_parser.o debugfs.o \
--	fb_decoder.o dmabuf.o page_track.o
-+	fb_decoder.o dmabuf.o page_track.o migrate.o
- 
- ccflags-y				+= -I$(src) -I$(src)/$(GVT_DIR)
- i915-y					+= $(addprefix $(GVT_DIR)/, $(GVT_SOURCE))
- obj-$(CONFIG_DRM_I915_GVT_KVMGT)	+= $(GVT_DIR)/kvmgt.o
-+obj-$(CONFIG_DRM_I915_GVT_XENGT)	+= $(GVT_DIR)/xengt.o
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/aperture_gm.c b/drivers/gpu/drm/i915/gvt/aperture_gm.c
---- a/drivers/gpu/drm/i915/gvt/aperture_gm.c	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/aperture_gm.c	2019-10-29 16:07:52.265554100 +0300
-@@ -144,8 +144,10 @@ void intel_vgpu_write_fence(struct intel
+ #ifdef CONFIG_KEXEC_CORE
+ phys_addr_t paddr_vmcoreinfo_note(void)
+ {
+diff -bpruN a/drivers/gpu/drm/i915/gvt/aperture_gm.c b/drivers/gpu/drm/i915/gvt/aperture_gm.c
+--- a/drivers/gpu/drm/i915/gvt/aperture_gm.c	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/aperture_gm.c	2020-05-13 22:55:11.108603222 +0300
+@@ -147,8 +147,10 @@ void intel_vgpu_write_fence(struct intel
  	I915_WRITE(fence_reg_lo, 0);
  	POSTING_READ(fence_reg_lo);
  
@@ -189,9 +151,9 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/aperture_gm.c b/dri
  	POSTING_READ(fence_reg_lo);
  }
  
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/cfg_space.c b/drivers/gpu/drm/i915/gvt/cfg_space.c
---- a/drivers/gpu/drm/i915/gvt/cfg_space.c	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/cfg_space.c	2019-10-29 16:07:52.266554102 +0300
+diff -bpruN a/drivers/gpu/drm/i915/gvt/cfg_space.c b/drivers/gpu/drm/i915/gvt/cfg_space.c
+--- a/drivers/gpu/drm/i915/gvt/cfg_space.c	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/cfg_space.c	2020-05-13 22:55:11.109603226 +0300
 @@ -33,6 +33,7 @@
  
  #include "i915_drv.h"
@@ -200,7 +162,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/cfg_space.c b/drive
  
  enum {
  	INTEL_GVT_PCI_BAR_GTTMMIO = 0,
-@@ -125,7 +126,7 @@ static int map_aperture(struct intel_vgp
+@@ -133,7 +134,7 @@ static int map_aperture(struct intel_vgp
  	else
  		val = *(u32 *)(vgpu_cfg_space(vgpu) + PCI_BASE_ADDRESS_2);
  
@@ -209,10 +171,10 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/cfg_space.c b/drive
  
  	ret = intel_gvt_hypervisor_map_gfn_to_mfn(vgpu, first_gfn,
  						  aperture_pa >> PAGE_SHIFT,
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/cmd_parser.c b/drivers/gpu/drm/i915/gvt/cmd_parser.c
---- a/drivers/gpu/drm/i915/gvt/cmd_parser.c	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/cmd_parser.c	2019-10-29 16:07:52.266554102 +0300
-@@ -984,7 +984,8 @@ static int cmd_handler_lrr(struct parser
+diff -bpruN a/drivers/gpu/drm/i915/gvt/cmd_parser.c b/drivers/gpu/drm/i915/gvt/cmd_parser.c
+--- a/drivers/gpu/drm/i915/gvt/cmd_parser.c	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/cmd_parser.c	2020-05-13 22:55:11.109603226 +0300
+@@ -1016,7 +1016,8 @@ static int cmd_handler_lrr(struct parser
  }
  
  static inline int cmd_address_audit(struct parser_exec_state *s,
@@ -222,7 +184,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/cmd_parser.c b/driv
  
  static int cmd_handler_lrm(struct parser_exec_state *s)
  {
-@@ -1006,7 +1007,8 @@ static int cmd_handler_lrm(struct parser
+@@ -1038,7 +1039,8 @@ static int cmd_handler_lrm(struct parser
  			gma = cmd_gma(s, i + 1);
  			if (gmadr_bytes == 8)
  				gma |= (cmd_gma_hi(s, i + 2)) << 32;
@@ -232,7 +194,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/cmd_parser.c b/driv
  			if (ret)
  				break;
  		}
-@@ -1030,7 +1032,8 @@ static int cmd_handler_srm(struct parser
+@@ -1062,7 +1064,8 @@ static int cmd_handler_srm(struct parser
  			gma = cmd_gma(s, i + 1);
  			if (gmadr_bytes == 8)
  				gma |= (cmd_gma_hi(s, i + 2)) << 32;
@@ -242,16 +204,16 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/cmd_parser.c b/driv
  			if (ret)
  				break;
  		}
-@@ -1102,7 +1105,7 @@ static int cmd_handler_pipe_control(stru
+@@ -1135,7 +1138,7 @@ static int cmd_handler_pipe_control(stru
  				if (cmd_val(s, 1) & (1 << 21))
  					index_mode = true;
  				ret |= cmd_address_audit(s, gma, sizeof(u64),
 -						index_mode);
-+						index_mode, 2);
- 			}
- 		}
- 	}
-@@ -1432,10 +1435,13 @@ static unsigned long get_gma_bb_from_cmd
++							 index_mode, 2);
+ 				if (ret)
+ 					return ret;
+ 				if (index_mode) {
+@@ -1483,10 +1486,13 @@ static unsigned long get_gma_bb_from_cmd
  }
  
  static inline int cmd_address_audit(struct parser_exec_state *s,
@@ -266,7 +228,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/cmd_parser.c b/driv
  	int i;
  	int ret;
  
-@@ -1453,6 +1459,14 @@ static inline int cmd_address_audit(stru
+@@ -1504,6 +1510,14 @@ static inline int cmd_address_audit(stru
  	} else if (!intel_gvt_ggtt_validate_range(vgpu, guest_gma, op_size)) {
  		ret = -EFAULT;
  		goto err;
@@ -281,7 +243,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/cmd_parser.c b/driv
  	}
  
  	return 0;
-@@ -1497,7 +1511,7 @@ static int cmd_handler_mi_store_data_imm
+@@ -1557,7 +1571,7 @@ static int cmd_handler_mi_store_data_imm
  		gma = (gma_high << 32) | gma_low;
  		core_id = (cmd_val(s, 1) & (1 << 0)) ? 1 : 0;
  	}
@@ -290,7 +252,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/cmd_parser.c b/driv
  	return ret;
  }
  
-@@ -1541,7 +1555,7 @@ static int cmd_handler_mi_op_2f(struct p
+@@ -1610,7 +1624,7 @@ static int cmd_handler_mi_op_2f(struct p
  		gma_high = cmd_val(s, 2) & GENMASK(15, 0);
  		gma = (gma_high << 32) | gma;
  	}
@@ -299,20 +261,20 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/cmd_parser.c b/driv
  	return ret;
  }
  
-@@ -1581,7 +1595,8 @@ static int cmd_handler_mi_flush_dw(struc
+@@ -1661,7 +1675,8 @@ static int cmd_handler_mi_flush_dw(struc
  		/* Store Data Index */
  		if (cmd_val(s, 0) & (1 << 21))
  			index_mode = true;
 -		ret = cmd_address_audit(s, gma, sizeof(u64), index_mode);
-+		ret = cmd_address_audit(s, (gma | (1 << 2)),
-+					sizeof(u64), index_mode, 1);
- 	}
- 	/* Check notify bit */
- 	if ((cmd_val(s, 0) & (1 << 8)))
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/dmabuf.c b/drivers/gpu/drm/i915/gvt/dmabuf.c
---- a/drivers/gpu/drm/i915/gvt/dmabuf.c	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/dmabuf.c	2019-10-29 16:07:52.266554102 +0300
-@@ -293,6 +293,9 @@ static int vgpu_get_plane_info(struct dr
++
++		ret = cmd_address_audit(s, gma, sizeof(u64), index_mode, 1);
+ 		if (ret)
+ 			return ret;
+ 		if (index_mode) {
+diff -bpruN a/drivers/gpu/drm/i915/gvt/dmabuf.c b/drivers/gpu/drm/i915/gvt/dmabuf.c
+--- a/drivers/gpu/drm/i915/gvt/dmabuf.c	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/dmabuf.c	2020-05-13 22:55:11.109603226 +0300
+@@ -286,6 +286,9 @@ static int vgpu_get_plane_info(struct dr
  		return -EFAULT;
  	}
  
@@ -322,10 +284,10 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/dmabuf.c b/drivers/
  	return 0;
  }
  
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/execlist.c b/drivers/gpu/drm/i915/gvt/execlist.c
---- a/drivers/gpu/drm/i915/gvt/execlist.c	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/execlist.c	2019-10-29 16:07:52.267554104 +0300
-@@ -437,7 +437,7 @@ out:
+diff -bpruN a/drivers/gpu/drm/i915/gvt/execlist.c b/drivers/gpu/drm/i915/gvt/execlist.c
+--- a/drivers/gpu/drm/i915/gvt/execlist.c	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/execlist.c	2020-05-13 22:55:11.110603230 +0300
+@@ -436,7 +436,7 @@ out:
  	return ret;
  }
  
@@ -334,19 +296,20 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/execlist.c b/driver
  		struct execlist_ctx_descriptor_format *desc,
  		bool emulate_schedule_in)
  {
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gtt.c b/drivers/gpu/drm/i915/gvt/gtt.c
---- a/drivers/gpu/drm/i915/gvt/gtt.c	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/gtt.c	2019-10-29 16:14:20.070447996 +0300
-@@ -33,6 +33,8 @@
+diff -bpruN a/drivers/gpu/drm/i915/gvt/gtt.c b/drivers/gpu/drm/i915/gvt/gtt.c
+--- a/drivers/gpu/drm/i915/gvt/gtt.c	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/gtt.c	2020-05-13 22:55:11.110603230 +0300
+@@ -32,7 +32,8 @@
+  *    Bing Niu <bing.niu@intel.com>
   *
   */
- 
+-
 +#include <linux/types.h>
 +#include <xen/xen.h>
  #include "i915_drv.h"
  #include "gvt.h"
  #include "i915_pvinfo.h"
-@@ -65,16 +67,15 @@ bool intel_gvt_ggtt_validate_range(struc
+@@ -71,16 +72,15 @@ bool intel_gvt_ggtt_validate_range(struc
  /* translate a guest gmadr to host gmadr */
  int intel_gvt_ggtt_gmadr_g2h(struct intel_vgpu *vgpu, u64 g_addr, u64 *h_addr)
  {
@@ -366,7 +329,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gtt.c b/drivers/gpu
  	return 0;
  }
  
-@@ -86,10 +87,10 @@ int intel_gvt_ggtt_gmadr_h2g(struct inte
+@@ -92,10 +92,10 @@ int intel_gvt_ggtt_gmadr_h2g(struct inte
  		return -EACCES;
  
  	if (gvt_gmadr_is_aperture(vgpu->gvt, h_addr))
@@ -379,7 +342,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gtt.c b/drivers/gpu
  			+ (h_addr - gvt_hidden_gmadr_base(vgpu->gvt));
  	return 0;
  }
-@@ -590,7 +591,7 @@ static inline void ppgtt_set_shadow_root
+@@ -596,7 +596,7 @@ static inline void ppgtt_set_shadow_root
  	_ppgtt_set_root_entry(mm, entry, index, false);
  }
  
@@ -388,28 +351,28 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gtt.c b/drivers/gpu
  		struct intel_gvt_gtt_entry *entry, unsigned long index)
  {
  	struct intel_gvt_gtt_pte_ops *pte_ops = mm->vgpu->gvt->gtt.pte_ops;
-@@ -1688,6 +1689,10 @@ static int ppgtt_handle_guest_write_page
+@@ -1719,6 +1719,10 @@ static int ppgtt_handle_guest_write_page
  
  	index = (pa & (PAGE_SIZE - 1)) >> info->gtt_entry_size_shift;
  
-+        if (xen_initial_domain())
-+               /* Set guest ppgtt entry.Optional for KVMGT,but MUST for XENGT*/
-+               intel_gvt_hypervisor_write_gpa(vgpu, pa, p_data, bytes);
++	if (xen_initial_domain())
++		/* Set guest ppgtt entry.Optional for KVMGT,but MUST for XENGT*/
++		intel_gvt_hypervisor_write_gpa(vgpu, pa, p_data, bytes);
 +
  	ppgtt_get_guest_entry(spt, &we, index);
  
  	/*
-@@ -2160,7 +2165,8 @@ static int emulate_ggtt_mmio_write(struc
+@@ -2211,7 +2215,8 @@ static int emulate_ggtt_mmio_write(struc
  	struct intel_vgpu_mm *ggtt_mm = vgpu->gtt.ggtt_mm;
  	struct intel_gvt_gtt_pte_ops *ops = gvt->gtt.pte_ops;
  	unsigned long g_gtt_index = off >> info->gtt_entry_size_shift;
 -	unsigned long gma, gfn;
 +	unsigned long gfn;
-+        unsigned long h_gtt_index;
++	unsigned long h_gtt_index;
  	struct intel_gvt_gtt_entry e = {.val64 = 0, .type = GTT_TYPE_GGTT_PTE};
  	struct intel_gvt_gtt_entry m = {.val64 = 0, .type = GTT_TYPE_GGTT_PTE};
  	dma_addr_t dma_addr;
-@@ -2169,10 +2175,8 @@ static int emulate_ggtt_mmio_write(struc
+@@ -2222,10 +2227,8 @@ static int emulate_ggtt_mmio_write(struc
  	if (bytes != 4 && bytes != 8)
  		return -EINVAL;
  
@@ -420,20 +383,20 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gtt.c b/drivers/gpu
 +	if (intel_gvt_ggtt_index_g2h(vgpu, g_gtt_index, &h_gtt_index))
  		return 0;
  
- 	ggtt_get_guest_entry(ggtt_mm, &e, g_gtt_index);
-@@ -2268,7 +2272,7 @@ static int emulate_ggtt_mmio_write(struc
- 	}
+ 	e.type = GTT_TYPE_GGTT_PTE;
+@@ -2313,7 +2316,7 @@ out:
+ 	ggtt_get_host_entry(ggtt_mm, &e, g_gtt_index);
+ 	ggtt_invalidate_pte(vgpu, &e);
  
- out:
 -	ggtt_set_host_entry(ggtt_mm, &m, g_gtt_index);
 +	ggtt_set_host_entry(ggtt_mm, &m, h_gtt_index);
  	ggtt_invalidate(gvt->dev_priv);
- 	ggtt_set_guest_entry(ggtt_mm, &e, g_gtt_index);
  	return 0;
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gtt.h b/drivers/gpu/drm/i915/gvt/gtt.h
---- a/drivers/gpu/drm/i915/gvt/gtt.h	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/gtt.h	2019-10-29 16:07:52.267554104 +0300
-@@ -265,6 +265,9 @@ struct intel_vgpu_mm *intel_vgpu_get_ppg
+ }
+diff -bpruN a/drivers/gpu/drm/i915/gvt/gtt.h b/drivers/gpu/drm/i915/gvt/gtt.h
+--- a/drivers/gpu/drm/i915/gvt/gtt.h	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/gtt.h	2020-05-13 22:55:11.110603230 +0300
+@@ -272,6 +272,9 @@ struct intel_vgpu_mm *intel_vgpu_get_ppg
  
  int intel_vgpu_put_ppgtt_mm(struct intel_vgpu *vgpu, u64 pdps[]);
  
@@ -443,20 +406,20 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gtt.h b/drivers/gpu
  int intel_vgpu_emulate_ggtt_mmio_read(struct intel_vgpu *vgpu,
  	unsigned int off, void *p_data, unsigned int bytes);
  
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gvt.c b/drivers/gpu/drm/i915/gvt/gvt.c
---- a/drivers/gpu/drm/i915/gvt/gvt.c	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/gvt.c	2019-10-29 16:07:52.267554104 +0300
-@@ -185,6 +185,7 @@ static const struct intel_gvt_ops intel_
- 	.vgpu_query_plane = intel_vgpu_query_plane,
+diff -bpruN a/drivers/gpu/drm/i915/gvt/gvt.c b/drivers/gpu/drm/i915/gvt/gvt.c
+--- a/drivers/gpu/drm/i915/gvt/gvt.c	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/gvt.c	2020-05-13 22:55:11.111603233 +0300
+@@ -186,6 +186,7 @@ static const struct intel_gvt_ops intel_
  	.vgpu_get_dmabuf = intel_vgpu_get_dmabuf,
  	.write_protect_handler = intel_vgpu_page_track_handler,
+ 	.emulate_hotplug = intel_vgpu_emulate_hotplug,
 +	.vgpu_save_restore = intel_gvt_save_restore,
  };
  
- /**
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gvt.h b/drivers/gpu/drm/i915/gvt/gvt.h
---- a/drivers/gpu/drm/i915/gvt/gvt.h	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/gvt.h	2019-10-29 16:07:52.268554107 +0300
+ static void init_device_info(struct intel_gvt *gvt)
+diff -bpruN a/drivers/gpu/drm/i915/gvt/gvt.h b/drivers/gpu/drm/i915/gvt/gvt.h
+--- a/drivers/gpu/drm/i915/gvt/gvt.h	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/gvt.h	2020-05-13 22:55:11.111603233 +0300
 @@ -46,6 +46,7 @@
  #include "sched_policy.h"
  #include "mmio_context.h"
@@ -465,7 +428,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gvt.h b/drivers/gpu
  #include "fb_decoder.h"
  #include "dmabuf.h"
  #include "page_track.h"
-@@ -198,6 +199,7 @@ struct intel_vgpu {
+@@ -195,6 +196,7 @@ struct intel_vgpu {
  	u32 hws_pga[I915_NUM_ENGINES];
  
  	struct dentry *debugfs;
@@ -473,7 +436,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gvt.h b/drivers/gpu
  
  #if IS_ENABLED(CONFIG_DRM_I915_GVT_KVMGT)
  	struct {
-@@ -420,6 +422,20 @@ int intel_gvt_load_firmware(struct intel
+@@ -421,6 +423,20 @@ int intel_gvt_load_firmware(struct intel
  #define vgpu_fence_base(vgpu) (vgpu->fence.base)
  #define vgpu_fence_sz(vgpu) (vgpu->fence.size)
  
@@ -494,7 +457,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gvt.h b/drivers/gpu
  struct intel_vgpu_creation_params {
  	__u64 handle;
  	__u64 low_gm_sz;  /* in MB */
-@@ -492,15 +508,17 @@ void intel_gvt_reset_vgpu_locked(struct
+@@ -489,15 +505,17 @@ void intel_gvt_reset_vgpu_locked(struct
  void intel_gvt_reset_vgpu(struct intel_vgpu *vgpu);
  void intel_gvt_activate_vgpu(struct intel_vgpu *vgpu);
  void intel_gvt_deactivate_vgpu(struct intel_vgpu *vgpu);
@@ -516,7 +479,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gvt.h b/drivers/gpu
  
  #define vgpu_gmadr_is_valid(vgpu, gmadr) \
  	 ((vgpu_gmadr_is_aperture(vgpu, gmadr) || \
-@@ -526,6 +544,20 @@ int intel_gvt_ggtt_index_g2h(struct inte
+@@ -523,6 +541,20 @@ int intel_gvt_ggtt_index_g2h(struct inte
  int intel_gvt_ggtt_h2g_index(struct intel_vgpu *vgpu, unsigned long h_index,
  			     unsigned long *g_index);
  
@@ -538,17 +501,17 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gvt.h b/drivers/gpu
  		bool primary);
  void intel_vgpu_reset_cfg_space(struct intel_vgpu *vgpu);
 @@ -577,6 +609,8 @@ struct intel_gvt_ops {
- 	int (*vgpu_get_dmabuf)(struct intel_vgpu *vgpu, unsigned int);
  	int (*write_protect_handler)(struct intel_vgpu *, u64, void *,
  				     unsigned int);
+ 	void (*emulate_hotplug)(struct intel_vgpu *vgpu, bool connected);
 +	int  (*vgpu_save_restore)(struct intel_vgpu *, char *buf, size_t count,
 +				  void *base, uint64_t off, bool restore);
  };
  
  
-@@ -690,6 +724,9 @@ int intel_gvt_debugfs_add_vgpu(struct in
+@@ -690,6 +724,9 @@ void intel_gvt_debugfs_add_vgpu(struct i
  void intel_gvt_debugfs_remove_vgpu(struct intel_vgpu *vgpu);
- int intel_gvt_debugfs_init(struct intel_gvt *gvt);
+ void intel_gvt_debugfs_init(struct intel_gvt *gvt);
  void intel_gvt_debugfs_clean(struct intel_gvt *gvt);
 +int submit_context(struct intel_vgpu *vgpu, int ring_id,
 +		struct execlist_ctx_descriptor_format *desc,
@@ -556,10 +519,229 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/gvt.h b/drivers/gpu
  
  
  #include "trace.h"
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/migrate.c b/drivers/gpu/drm/i915/gvt/migrate.c
+diff -bpruN a/drivers/gpu/drm/i915/gvt/hypercall.h b/drivers/gpu/drm/i915/gvt/hypercall.h
+--- a/drivers/gpu/drm/i915/gvt/hypercall.h	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/hypercall.h	2020-05-13 22:55:11.111603233 +0300
+@@ -73,6 +73,4 @@ struct intel_gvt_mpt {
+ 	bool (*is_valid_gfn)(unsigned long handle, unsigned long gfn);
+ };
+ 
+-extern struct intel_gvt_mpt xengt_mpt;
+-
+ #endif /* _GVT_HYPERCALL_H_ */
+diff -bpruN a/drivers/gpu/drm/i915/gvt/kvmgt.c b/drivers/gpu/drm/i915/gvt/kvmgt.c
+--- a/drivers/gpu/drm/i915/gvt/kvmgt.c	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/kvmgt.c	2020-05-13 22:55:11.111603233 +0300
+@@ -406,6 +406,83 @@ static void kvmgt_protect_table_del(stru
+ 	}
+ }
+ 
++static size_t intel_vgpu_reg_rw_device_state(struct intel_vgpu *vgpu, char *buf,
++		size_t count, loff_t *ppos, bool iswrite)
++{
++	unsigned int i = VFIO_PCI_OFFSET_TO_INDEX(*ppos) - VFIO_PCI_NUM_REGIONS;
++	void *base = vgpu->vdev.region[i].data;
++	loff_t pos = *ppos & VFIO_PCI_OFFSET_MASK;
++	uint8_t state;
++	int rc = 0;
++
++	if (pos >= vgpu->vdev.region[i].size) {
++		gvt_vgpu_err("invalid offset for Intel vgpu device state region\n");
++		rc = -EINVAL;
++		goto exit;
++	}
++
++	if (pos == 0) {
++		if (count != 1) {
++			rc = -EFAULT;
++			goto exit;
++		}
++
++		if (iswrite) {
++			if (copy_from_user(&state, buf, count)) {
++				rc = -EFAULT;
++				goto exit;
++			}
++			switch (state) {
++			case VFIO_DEVICE_STOP:
++				intel_gvt_ops->vgpu_deactivate(vgpu);
++				break;
++			case VFIO_DEVICE_START:
++				intel_gvt_ops->vgpu_activate(vgpu);
++				break;
++			default:
++				rc = -EFAULT;
++				goto exit;
++			}
++			memcpy(base, &state, count);
++		} else {
++			if (copy_to_user(buf, base, count))
++				rc = -EFAULT;
++		}
++	} else {
++		if (iswrite) {
++			if (copy_from_user(base + pos, buf, count)) {
++				rc = -EFAULT;
++				goto exit;
++			}
++
++			rc = intel_gvt_ops->vgpu_save_restore(vgpu,
++					buf, count, base, pos, iswrite);
++		} else {
++			if (intel_gvt_ops->vgpu_save_restore(vgpu,
++					buf, count, base, pos, iswrite) != 0) {
++				rc = -EFAULT;
++				goto exit;
++			}
++
++			if (copy_to_user(buf, base + pos, count))
++				 rc = -EFAULT;
++		}
++	}
++exit:
++	return rc;
++}
++
++static void intel_vgpu_reg_release_device_state(struct intel_vgpu *vgpu,
++		struct vfio_region *region)
++{
++	vfree(region->data);
++}
++
++static const struct intel_vgpu_regops intel_vgpu_regops_device_state = {
++	.rw	 = intel_vgpu_reg_rw_device_state,
++	.release = intel_vgpu_reg_release_device_state,
++};
++
+ static size_t intel_vgpu_reg_rw_opregion(struct intel_vgpu *vgpu, char *buf,
+ 		size_t count, loff_t *ppos, bool iswrite)
+ {
+@@ -421,7 +498,7 @@ static size_t intel_vgpu_reg_rw_opregion
+ 	count = min(count, (size_t)(vgpu->vdev.region[i].size - pos));
+ 	memcpy(buf, base + pos, count);
+ 
+-	return count;
++	return 0;
+ }
+ 
+ static void intel_vgpu_reg_release_opregion(struct intel_vgpu *vgpu,
+@@ -643,6 +720,28 @@ static void kvmgt_put_vfio_device(void *
+ 	vfio_device_put(((struct intel_vgpu *)vgpu)->vdev.vfio_device);
+ }
+ 
++static int kvmgt_init_migration(struct intel_vgpu *vgpu)
++{
++	void *base;
++	int ret;
++
++	base = vzalloc(MIGRATION_IMG_MAX_SIZE);
++	if (base == NULL)
++		return -ENOMEM;
++
++	ret = intel_vgpu_register_reg(vgpu,
++			VFIO_REGION_TYPE_DEVICE_STATE,
++			VFIO_REGION_SUBTYPE_DEVICE_STATE,
++			&intel_vgpu_regops_device_state, MIGRATION_IMG_MAX_SIZE,
++			VFIO_REGION_INFO_FLAG_READ |
++			VFIO_REGION_INFO_FLAG_WRITE,
++			base);
++	if (ret)
++		vfree(base);
++
++	return ret;
++}
++
+ static int intel_vgpu_create(struct kobject *kobj, struct mdev_device *mdev)
+ {
+ 	struct intel_vgpu *vgpu = NULL;
+@@ -779,6 +878,8 @@ static int intel_vgpu_open(struct mdev_d
+ 	if (ret)
+ 		goto undo_group;
+ 
++	kvmgt_init_migration(vgpu);
++
+ 	intel_gvt_ops->vgpu_activate(vgpu);
+ 
+ 	atomic_set(&vgpu->vdev.released, 0);
+@@ -810,6 +911,7 @@ static void __intel_vgpu_release(struct
+ {
+ 	struct kvmgt_guest_info *info;
+ 	int ret;
++	int i;
+ 
+ 	if (!handle_valid(vgpu->handle))
+ 		return;
+@@ -819,6 +921,13 @@ static void __intel_vgpu_release(struct
+ 
+ 	intel_gvt_ops->vgpu_release(vgpu);
+ 
++	for (i = 0; i < vgpu->vdev.num_regions; i++)
++		vgpu->vdev.region[i].ops->release(vgpu, &vgpu->vdev.region[i]);
++
++	vgpu->vdev.num_regions = 0;
++	kfree(vgpu->vdev.region);
++	vgpu->vdev.region = NULL;
++
+ 	ret = vfio_unregister_notifier(mdev_dev(vgpu->vdev.mdev), VFIO_IOMMU_NOTIFY,
+ 					&vgpu->vdev.iommu_notifier);
+ 	WARN(ret, "vfio_unregister_notifier for iommu failed: %d\n", ret);
+@@ -971,7 +1080,7 @@ static ssize_t intel_vgpu_rw(struct mdev
+ 			return -EINVAL;
+ 
+ 		index -= VFIO_PCI_NUM_REGIONS;
+-		return vgpu->vdev.region[index].ops->rw(vgpu, buf, count,
++		ret = vgpu->vdev.region[index].ops->rw(vgpu, buf, count,
+ 				ppos, is_write);
+ 	}
+ 
+@@ -1002,6 +1111,10 @@ static ssize_t intel_vgpu_read(struct md
+ {
+ 	unsigned int done = 0;
+ 	int ret;
++	unsigned int index = VFIO_PCI_OFFSET_TO_INDEX(*ppos);
++
++	if (index >= VFIO_PCI_NUM_REGIONS)
++		return intel_vgpu_rw(mdev, (char *)buf, count, ppos, false);
+ 
+ 	while (count) {
+ 		size_t filled;
+@@ -1076,6 +1189,10 @@ static ssize_t intel_vgpu_write(struct m
+ {
+ 	unsigned int done = 0;
+ 	int ret;
++	unsigned int index = VFIO_PCI_OFFSET_TO_INDEX(*ppos);
++
++	if (index >= VFIO_PCI_NUM_REGIONS)
++		return intel_vgpu_rw(mdev, (char *)buf, count, ppos, true);
+ 
+ 	while (count) {
+ 		size_t filled;
+@@ -1357,8 +1474,7 @@ static long intel_vgpu_ioctl(struct mdev
+ 			sparse->header.version = 1;
+ 			sparse->nr_areas = nr_areas;
+ 			cap_type_id = VFIO_REGION_INFO_CAP_SPARSE_MMAP;
+-			sparse->areas[0].offset =
+-					PAGE_ALIGN(vgpu_aperture_offset(vgpu));
++			sparse->areas[0].offset = 0;
+ 			sparse->areas[0].size = vgpu_aperture_sz(vgpu);
+ 			break;
+ 
+diff -bpruN a/drivers/gpu/drm/i915/gvt/Makefile b/drivers/gpu/drm/i915/gvt/Makefile
+--- a/drivers/gpu/drm/i915/gvt/Makefile	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/Makefile	2020-05-13 22:55:11.112603237 +0300
+@@ -3,7 +3,7 @@ GVT_DIR := gvt
+ GVT_SOURCE := gvt.o aperture_gm.o handlers.o vgpu.o trace_points.o firmware.o \
+ 	interrupt.o gtt.o cfg_space.o opregion.o mmio.o display.o edid.o \
+ 	execlist.o scheduler.o sched_policy.o mmio_context.o cmd_parser.o debugfs.o \
+-	fb_decoder.o dmabuf.o page_track.o
++	fb_decoder.o dmabuf.o page_track.o migrate.o
+ 
+ ccflags-y				+= -I $(srctree)/$(src) -I $(srctree)/$(src)/$(GVT_DIR)/
+ i915-y					+= $(addprefix $(GVT_DIR)/, $(GVT_SOURCE))
+diff -bpruN a/drivers/gpu/drm/i915/gvt/migrate.c b/drivers/gpu/drm/i915/gvt/migrate.c
 --- a/drivers/gpu/drm/i915/gvt/migrate.c	1970-01-01 03:00:00.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/migrate.c	2019-10-29 16:07:52.269554109 +0300
-@@ -0,0 +1,961 @@
++++ b/drivers/gpu/drm/i915/gvt/migrate.c	2020-05-13 22:55:11.112603237 +0300
+@@ -0,0 +1,913 @@
 +/*
 + * Copyright(c) 2011-2016 Intel Corporation. All rights reserved.
 + *
@@ -627,8 +809,6 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/migrate.c b/drivers
 +static int image_header_save(const struct gvt_migration_obj_t *obj);
 +static int vreg_load(const struct gvt_migration_obj_t *obj, u32 size);
 +static int vreg_save(const struct gvt_migration_obj_t *obj);
-+static int sreg_load(const struct gvt_migration_obj_t *obj, u32 size);
-+static int sreg_save(const struct gvt_migration_obj_t *obj);
 +static int vcfg_space_load(const struct gvt_migration_obj_t *obj, u32 size);
 +static int vcfg_space_save(const struct gvt_migration_obj_t *obj);
 +static int vggtt_load(const struct gvt_migration_obj_t *obj, u32 size);
@@ -649,13 +829,6 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/migrate.c b/drivers
 +	.pre_copy = NULL,
 +	.pre_save = vreg_save,
 +	.pre_load = vreg_load,
-+	.post_load = NULL,
-+};
-+
-+struct gvt_migration_operation_t sReg_ops = {
-+	.pre_copy = NULL,
-+	.pre_save = sreg_save,
-+	.pre_load = sreg_load,
 +	.post_load = NULL,
 +};
 +
@@ -744,9 +917,6 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/migrate.c b/drivers
 +			GVT_MIGRATION_CFG_SPACE,
 +			PCI_CFG_SPACE_EXP_SIZE,
 +			vcfg_space_ops),
-+	MIGRATION_UNIT(struct intel_vgpu,
-+			GVT_MIGRATION_SREG,
-+			GVT_MMIO_SIZE, sReg_ops),
 +	MIGRATION_UNIT(struct intel_vgpu,
 +			GVT_MIGRATION_VREG,
 +			GVT_MMIO_SIZE, vReg_ops),
@@ -911,42 +1081,6 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/migrate.c b/drivers
 +	return n_transfer;
 +}
 +
-+static int sreg_save(const struct gvt_migration_obj_t *obj)
-+{
-+	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
-+	int n_transfer = INV;
-+	void *src = vgpu->mmio.sreg;
-+	void *des = obj->img + obj->offset;
-+
-+	memcpy(des, &obj->region, sizeof(struct gvt_region_t));
-+
-+	des += sizeof(struct gvt_region_t);
-+	n_transfer = obj->region.size;
-+
-+	memcpy(des, src, n_transfer);
-+	return sizeof(struct gvt_region_t) + n_transfer;
-+}
-+
-+static int sreg_load(const struct gvt_migration_obj_t *obj, u32 size)
-+{
-+	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
-+	void *dest = vgpu->mmio.sreg;
-+	int n_transfer = INV;
-+
-+	if (unlikely(size != obj->region.size)) {
-+		gvt_err("migration obj size isn't match between target and image!"
-+		" memsize=%d imgsize=%d\n",
-+		obj->region.size,
-+		size);
-+		return n_transfer;
-+	} else {
-+		n_transfer = obj->region.size;
-+		memcpy(dest, obj->img + obj->offset, n_transfer);
-+	}
-+
-+	return n_transfer;
-+}
-+
 +static int opregion_save(const struct gvt_migration_obj_t *obj)
 +{
 +	struct intel_vgpu *vgpu = (struct intel_vgpu *) obj->vgpu;
@@ -1098,7 +1232,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/migrate.c b/drivers
 +
 +	//restore ring mode register for execlist init
 +	for_each_engine(engine, dev_priv, id)
-+		MIG_VREG_RESTORE(vgpu, i915_mmio_reg_offset(RING_MODE_GEN7(engine)));
++		MIG_VREG_RESTORE(vgpu, i915_mmio_reg_offset(RING_MODE_GEN7(engine->mmio_base)));
 +
 +	memcpy(dest, obj->img + obj->offset, n_transfer);
 +	return n_transfer;
@@ -1521,9 +1655,9 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/migrate.c b/drivers
 +
 +	return ret;
 +}
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/migrate.h b/drivers/gpu/drm/i915/gvt/migrate.h
+diff -bpruN a/drivers/gpu/drm/i915/gvt/migrate.h b/drivers/gpu/drm/i915/gvt/migrate.h
 --- a/drivers/gpu/drm/i915/gvt/migrate.h	1970-01-01 03:00:00.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/migrate.h	2019-10-29 16:07:52.269554109 +0300
++++ b/drivers/gpu/drm/i915/gvt/migrate.h	2020-05-13 22:55:11.112603237 +0300
 @@ -0,0 +1,102 @@
 +/*
 + * Copyright(c) 2011-2016 Intel Corporation. All rights reserved.
@@ -1627,10 +1761,10 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/migrate.h b/drivers
 +};
 +
 +#endif
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/mmio.c b/drivers/gpu/drm/i915/gvt/mmio.c
---- a/drivers/gpu/drm/i915/gvt/mmio.c	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/mmio.c	2019-10-29 16:07:52.269554109 +0300
-@@ -49,6 +49,19 @@ int intel_vgpu_gpa_to_mmio_offset(struct
+diff -bpruN a/drivers/gpu/drm/i915/gvt/mmio.c b/drivers/gpu/drm/i915/gvt/mmio.c
+--- a/drivers/gpu/drm/i915/gvt/mmio.c	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/mmio.c	2020-05-13 22:55:11.112603237 +0300
+@@ -50,6 +50,19 @@ int intel_vgpu_gpa_to_mmio_offset(struct
  	return gpa - gttmmio_gpa;
  }
  
@@ -1650,10 +1784,10 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/mmio.c b/drivers/gp
  #define reg_is_mmio(gvt, reg)  \
  	(reg >= 0 && reg < gvt->device_info.mmio_size)
  
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/mmio.h b/drivers/gpu/drm/i915/gvt/mmio.h
---- a/drivers/gpu/drm/i915/gvt/mmio.h	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/mmio.h	2019-10-29 16:07:52.269554109 +0300
-@@ -82,6 +82,7 @@ void intel_vgpu_reset_mmio(struct intel_
+diff -bpruN a/drivers/gpu/drm/i915/gvt/mmio.h b/drivers/gpu/drm/i915/gvt/mmio.h
+--- a/drivers/gpu/drm/i915/gvt/mmio.h	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/mmio.h	2020-05-13 22:55:11.113603241 +0300
+@@ -83,6 +83,7 @@ void intel_vgpu_reset_mmio(struct intel_
  void intel_vgpu_clean_mmio(struct intel_vgpu *vgpu);
  
  int intel_vgpu_gpa_to_mmio_offset(struct intel_vgpu *vgpu, u64 gpa);
@@ -1661,9 +1795,9 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/mmio.h b/drivers/gp
  
  int intel_vgpu_emulate_mmio_read(struct intel_vgpu *vgpu, u64 pa,
  				void *p_data, unsigned int bytes);
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/vgpu.c b/drivers/gpu/drm/i915/gvt/vgpu.c
---- a/drivers/gpu/drm/i915/gvt/vgpu.c	2019-10-17 23:45:44.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/vgpu.c	2019-10-29 16:07:52.269554109 +0300
+diff -bpruN a/drivers/gpu/drm/i915/gvt/vgpu.c b/drivers/gpu/drm/i915/gvt/vgpu.c
+--- a/drivers/gpu/drm/i915/gvt/vgpu.c	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/gvt/vgpu.c	2020-05-13 22:57:21.896087427 +0300
 @@ -48,8 +48,7 @@ void populate_pvinfo_page(struct intel_v
  	vgpu_vreg_t(vgpu, vgtif_reg(vgt_caps)) |= VGT_CAPS_HWSP_EMULATION;
  	vgpu_vreg_t(vgpu, vgtif_reg(vgt_caps)) |= VGT_CAPS_HUGE_GTT;
@@ -1682,31 +1816,31 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/vgpu.c b/drivers/gp
  	mutex_unlock(&vgpu->gvt->lock);
  }
  
-@@ -530,6 +530,9 @@ void intel_gvt_reset_vgpu_locked(struct
- {
+@@ -535,6 +535,9 @@ void intel_gvt_reset_vgpu_locked(struct
  	struct intel_gvt *gvt = vgpu->gvt;
  	struct intel_gvt_workload_scheduler *scheduler = &gvt->scheduler;
+ 	intel_engine_mask_t resetting_eng = dmlr ? ALL_ENGINES : engine_mask;
 +	u64 maddr = vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.mappable_gmadr.base));
 +	u64 unmaddr = vgpu_vreg_t(vgpu,
 +				vgtif_reg(avail_rs.nonmappable_gmadr.base));
- 	unsigned int resetting_eng = dmlr ? ALL_ENGINES : engine_mask;
  
  	gvt_dbg_core("------------------------------------------\n");
-@@ -562,6 +565,10 @@ void intel_gvt_reset_vgpu_locked(struct
+ 	gvt_dbg_core("resseting vgpu%d, dmlr %d, engine_mask %08x\n",
+@@ -566,6 +569,10 @@ void intel_gvt_reset_vgpu_locked(struct
  
  		intel_vgpu_reset_mmio(vgpu, dmlr);
  		populate_pvinfo_page(vgpu);
 +		vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.mappable_gmadr.base)) =
-+			maddr;
-+		vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.nonmappable_gmadr.base)) =
-+			unmaddr;
++                       maddr;
++                vgpu_vreg_t(vgpu, vgtif_reg(avail_rs.nonmappable_gmadr.base)) =
++                       unmaddr;
  
  		if (dmlr) {
  			intel_vgpu_reset_display(vgpu);
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/gpu/drm/i915/gvt/xengt.c
+diff -bpruN a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/gpu/drm/i915/gvt/xengt.c
 --- a/drivers/gpu/drm/i915/gvt/xengt.c	1970-01-01 03:00:00.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/xengt.c	2019-10-29 16:07:52.270554111 +0300
-@@ -0,0 +1,1859 @@
++++ b/drivers/gpu/drm/i915/gvt/xengt.c	2020-05-13 22:55:11.114603244 +0300
+@@ -0,0 +1,1866 @@
 +/*
 + * Interfaces coupled to Xen
 + *
@@ -1930,10 +2064,17 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/g
 +		gvt_err("choose vgpu type failed");
 +		return -EINVAL;
 +	}
++
++	if(!try_module_get(THIS_MODULE)) {
++		gvt_err("get xengt.ko failed.\n");
++		return -EINVAL;
++	}
++
 +	mutex_lock(&gvt_sysfs_lock);
 +	vgpu = xengt_instance_create(vp->vm_id, type);
 +	mutex_unlock(&gvt_sysfs_lock);
 +	if (vgpu == NULL) {
++		module_put(THIS_MODULE);
 +		gvt_err("xengt_sysfs_add_instance failed.\n");
 +		ret = -EINVAL;
 +	} else {
@@ -1995,6 +2136,8 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/g
 +		xengt_priv.vgpus[vgpu->id - 1] = NULL;
 +		xengt_instance_destroy(vgpu);
 +		mutex_unlock(&gvt_sysfs_lock);
++
++		module_put(THIS_MODULE);
 +	}
 +
 +	return ret;
@@ -2762,11 +2905,10 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/g
 +	return -ENOMEM;
 +}
 +
-+static void xengt_vmem_destroy(struct intel_vgpu *vgpu)
++static void xengt_vmem_destroy(struct xengt_hvm_dev *info)
 +{
 +	int i, j;
 +	unsigned long nr_low_1mb_bkt, nr_high_bkt, nr_high_bkt_4k;
-+	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)vgpu->handle;
 +
 +	if (!info || info->vm_id == 0)
 +		return;
@@ -3109,23 +3251,19 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/g
 +	return 0;
 +}
 +
-+static inline void xengt_raise_emulation_request(struct intel_vgpu *vgpu,
++static inline void xengt_raise_emulation_request(struct xengt_hvm_dev *info,
 +	int vcpu)
 +{
-+	struct xengt_hvm_dev *info = (struct xengt_hvm_dev *)vgpu->handle;
-+
 +	set_bit(vcpu, info->ioreq_pending);
 +	wake_up(&info->io_event_wq);
 +}
 +
 +static irqreturn_t xengt_io_req_handler(int irq, void *dev)
 +{
-+	struct intel_vgpu *vgpu;
 +	struct xengt_hvm_dev *info;
 +	int vcpu;
 +
-+	vgpu = (struct intel_vgpu *)dev;
-+	info = (struct xengt_hvm_dev *)vgpu->handle;
++	info = (struct xengt_hvm_dev *)dev;
 +
 +	for (vcpu = 0; vcpu < info->nr_vcpu; vcpu++) {
 +		if (info->evtchn_irq[vcpu] == irq)
@@ -3138,7 +3276,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/g
 +		return IRQ_NONE;
 +	}
 +
-+	xengt_raise_emulation_request(vgpu, vcpu);
++	xengt_raise_emulation_request(info, vcpu);
 +
 +	return IRQ_HANDLED;
 +}
@@ -3159,15 +3297,19 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/g
 +
 +void xengt_instance_destroy(struct intel_vgpu *vgpu)
 +{
-+	struct xengt_hvm_dev *info;
++	struct xengt_hvm_dev *info = NULL;
 +	int vcpu;
 +
-+	intel_gvt_ops->vgpu_deactivate(vgpu);
++	if (vgpu) {
++		info = (struct xengt_hvm_dev *)vgpu->handle;
++		intel_gvt_ops->vgpu_deactivate(vgpu);
++		intel_gvt_ops->vgpu_destroy(vgpu);
++	}
 +
-+	info = (struct xengt_hvm_dev *)vgpu->handle;
 +	if (info == NULL)
-+		goto free_vgpu;
++		return;
 +
++	info->vgpu = NULL;
 +	info->on_destroy = true;
 +	if (info->emulation_thread != NULL)
 +		kthread_stop(info->emulation_thread);
@@ -3185,7 +3327,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/g
 +
 +	for (vcpu = 0; vcpu < info->nr_vcpu; vcpu++) {
 +		if (info->evtchn_irq[vcpu] >= 0)
-+			unbind_from_irqhandler(info->evtchn_irq[vcpu], vgpu);
++			unbind_from_irqhandler(info->evtchn_irq[vcpu], info);
 +	}
 +
 +	if (info->iopage_vma != NULL) {
@@ -3201,13 +3343,8 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/g
 +
 +out1:
 +	xengt_logd_destroy(info);
-+	xengt_vmem_destroy(vgpu);
-+	vgpu->handle = (unsigned long)NULL;
++	xengt_vmem_destroy(info);
 +	kfree(info);
-+
-+free_vgpu:
-+	if (vgpu)
-+		intel_gvt_ops->vgpu_destroy(vgpu);
 +}
 +
 +struct intel_vgpu *xengt_instance_create(domid_t vm_id,
@@ -3272,7 +3409,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/g
 +		irq = bind_interdomain_evtchn_to_irqhandler(vm_id,
 +				info->iopage->vcpu_ioreq[vcpu].vp_eport,
 +				xengt_io_req_handler, 0,
-+				"xengt", vgpu);
++				"xengt", info);
 +		if (irq < 0) {
 +			rc = irq;
 +			gvt_err("Failed to bind event channle: %d\n", rc);
@@ -3361,7 +3498,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/g
 +	return ret;
 +}
 +
-+static void xengt_host_exit(struct device *dev, void *gvt)
++static void xengt_host_exit(struct device *dev)
 +{
 +	xengt_sysfs_del();
 +	xengt_priv.gvt = NULL;
@@ -3374,7 +3511,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/g
 +	return 0;
 +}
 +
-+static void xengt_detach_vgpu(unsigned long handle)
++static void xengt_detach_vgpu(void *vgpu)
 +{
 +	/* nothing to do here */
 +}
@@ -3532,8 +3669,9 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/g
 +{
 +}
 +
-+struct intel_gvt_mpt xengt_mpt = {
++static struct intel_gvt_mpt xengt_mpt = {
 +	//.detect_host = xengt_detect_host,
++	.type = INTEL_GVT_HYPERVISOR_XEN,
 +	.host_init = xengt_host_init,
 +	.host_exit = xengt_host_exit,
 +	.attach_vgpu = xengt_attach_vgpu,
@@ -3550,25 +3688,28 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.c b/drivers/g
 +	.map_gfn_to_mfn = xengt_map_gfn_to_mfn,
 +	.set_trap_area = xengt_set_trap_area,
 +};
-+EXPORT_SYMBOL_GPL(xengt_mpt);
 +
 +static int __init xengt_init(void)
 +{
 +	if (!xen_initial_domain())
 +		return -EINVAL;
++
++	if (intel_gvt_register_hypervisor(&xengt_mpt) < 0)
++		return -ENODEV;
 +	return 0;
 +}
 +
 +static void __exit xengt_exit(void)
 +{
++	intel_gvt_unregister_hypervisor();
 +	gvt_dbg_core("xengt: unloaded\n");
 +}
 +
 +module_init(xengt_init);
 +module_exit(xengt_exit);
-diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.h b/drivers/gpu/drm/i915/gvt/xengt.h
+diff -bpruN a/drivers/gpu/drm/i915/gvt/xengt.h b/drivers/gpu/drm/i915/gvt/xengt.h
 --- a/drivers/gpu/drm/i915/gvt/xengt.h	1970-01-01 03:00:00.000000000 +0300
-+++ b/drivers/gpu/drm/i915/gvt/xengt.h	2019-10-29 16:07:52.270554111 +0300
++++ b/drivers/gpu/drm/i915/gvt/xengt.h	2020-05-13 22:55:11.114603244 +0300
 @@ -0,0 +1,91 @@
 +#ifndef INTEL_GVT_XENGT_H
 +#define INTEL_GVT_XENGT_H
@@ -3661,9 +3802,128 @@ diff -uNrp -x '*.orig' -x '*.rej' a/drivers/gpu/drm/i915/gvt/xengt.h b/drivers/g
 +
 +
 +#endif
-diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/hvm/dm_op.h b/include/xen/interface/hvm/dm_op.h
---- a/include/xen/interface/hvm/dm_op.h	2019-10-17 23:45:44.000000000 +0300
-+++ b/include/xen/interface/hvm/dm_op.h	2019-10-29 16:07:52.271554114 +0300
+diff -bpruN a/drivers/gpu/drm/i915/Makefile b/drivers/gpu/drm/i915/Makefile
+--- a/drivers/gpu/drm/i915/Makefile	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/Makefile	2020-05-13 22:58:04.372244691 +0300
+@@ -259,3 +259,4 @@ endif
+ 
+ obj-$(CONFIG_DRM_I915) += i915.o
+ obj-$(CONFIG_DRM_I915_GVT_KVMGT) += gvt/kvmgt.o
++obj-$(CONFIG_DRM_I915_GVT_XENGT) += gvt/xengt.o
+diff -bpruN a/drivers/vfio/vfio_iommu_type1.c b/drivers/vfio/vfio_iommu_type1.c
+--- a/drivers/vfio/vfio_iommu_type1.c	2020-05-02 18:26:50.000000000 +0300
++++ b/drivers/vfio/vfio_iommu_type1.c	2020-05-13 22:55:11.115603248 +0300
+@@ -38,6 +38,7 @@
+ #include <linux/notifier.h>
+ #include <linux/dma-iommu.h>
+ #include <linux/irqdomain.h>
++#include <linux/vmalloc.h>
+ 
+ #define DRIVER_VERSION  "0.2"
+ #define DRIVER_AUTHOR   "Alex Williamson <alex.williamson@redhat.com>"
+@@ -2211,6 +2212,23 @@ out_unlock:
+ 	return ret;
+ }
+ 
++static void vfio_dma_update_dirty_bitmap(struct vfio_iommu *iommu,
++				u64 start_addr, u64 npage, void *bitmap)
++{
++	u64 iova = start_addr;
++	struct vfio_dma *dma;
++	int i;
++
++	for (i = 0; i < npage; i++) {
++		dma = vfio_find_dma(iommu, iova, PAGE_SIZE);
++		if (dma)
++			if (vfio_find_vpfn(dma, iova))
++				set_bit(i, bitmap);
++
++		iova += PAGE_SIZE;
++	}
++}
++
+ static long vfio_iommu_type1_ioctl(void *iommu_data,
+ 				   unsigned int cmd, unsigned long arg)
+ {
+@@ -2315,6 +2333,30 @@ static long vfio_iommu_type1_ioctl(void
+ 
+ 		return copy_to_user((void __user *)arg, &unmap, minsz) ?
+ 			-EFAULT : 0;
++	} else if (cmd == VFIO_IOMMU_GET_DIRTY_BITMAP) {
++		struct vfio_iommu_get_dirty_bitmap d;
++		unsigned long bitmap_sz;
++		unsigned int *bitmap;
++
++		minsz = offsetofend(struct vfio_iommu_get_dirty_bitmap,
++				    page_nr);
++
++		if (copy_from_user(&d, (void __user *)arg, minsz))
++			return -EFAULT;
++
++		bitmap_sz = (BITS_TO_LONGS(d.page_nr) + 1) *
++			    sizeof(unsigned long);
++		bitmap = vzalloc(bitmap_sz);
++		vfio_dma_update_dirty_bitmap(iommu, d.start_addr,
++					     d.page_nr, bitmap);
++
++		if (copy_to_user((void __user *)arg + minsz,
++				bitmap, bitmap_sz)) {
++			vfree(bitmap);
++			return -EFAULT;
++		}
++		vfree(bitmap);
++		return 0;
+ 	}
+ 
+ 	return -ENOTTY;
+diff -bpruN a/include/uapi/linux/vfio.h b/include/uapi/linux/vfio.h
+--- a/include/uapi/linux/vfio.h	2020-05-02 18:26:50.000000000 +0300
++++ b/include/uapi/linux/vfio.h	2020-05-13 22:55:11.115603248 +0300
+@@ -313,6 +313,20 @@ struct vfio_region_info_cap_type {
+ #define VFIO_REGION_SUBTYPE_INTEL_IGD_HOST_CFG	(2)
+ #define VFIO_REGION_SUBTYPE_INTEL_IGD_LPC_CFG	(3)
+ 
++/*
++ * The region type device state is for save or restore the vfio device during
++ * migration.
++ */
++#define VFIO_REGION_TYPE_DEVICE_STATE		(1 << 30)
++/* Mdev sub-type for device state save and restore */
++#define VFIO_REGION_SUBTYPE_DEVICE_STATE	(1)
++
++/* Offset in region to save device state */
++#define VFIO_DEVICE_STATE_OFFSET	1
++
++#define VFIO_DEVICE_START	0
++#define VFIO_DEVICE_STOP	1
++
+ /* 10de vendor PCI sub-types */
+ /*
+  * NVIDIA GPU NVlink2 RAM is coherent RAM mapped onto the host address space.
+@@ -794,6 +808,20 @@ struct vfio_iommu_type1_dma_unmap {
+ #define VFIO_IOMMU_ENABLE	_IO(VFIO_TYPE, VFIO_BASE + 15)
+ #define VFIO_IOMMU_DISABLE	_IO(VFIO_TYPE, VFIO_BASE + 16)
+ 
++/**
++ * VFIO_IOMMU_GET_DIRTY_BITMAP - _IOW(VFIO_TYPE, VFIO_BASE + 17,
++ *				    struct vfio_iommu_get_dirty_bitmap)
++ *
++ * Return: 0 on success, -errno on failure.
++ */
++struct vfio_iommu_get_dirty_bitmap {
++	__u64	       start_addr;
++	__u64	       page_nr;
++	__u8           dirty_bitmap[];
++};
++
++#define VFIO_IOMMU_GET_DIRTY_BITMAP _IO(VFIO_TYPE, VFIO_BASE + 17)
++
+ /* -------- Additional API for SPAPR TCE (Server POWERPC) IOMMU -------- */
+ 
+ /*
+diff -bpruN a/include/xen/interface/hvm/dm_op.h b/include/xen/interface/hvm/dm_op.h
+--- a/include/xen/interface/hvm/dm_op.h	2020-05-02 18:26:50.000000000 +0300
++++ b/include/xen/interface/hvm/dm_op.h	2020-05-13 22:55:11.116603252 +0300
 @@ -18,15 +18,395 @@
   * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
   * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
@@ -4061,10 +4321,10 @@ diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/hvm/dm_op.h b/include/
 + * indent-tabs-mode: nil
 + * End:
 + */
-diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/hvm/hvm_op.h b/include/xen/interface/hvm/hvm_op.h
---- a/include/xen/interface/hvm/hvm_op.h	2019-10-17 23:45:44.000000000 +0300
-+++ b/include/xen/interface/hvm/hvm_op.h	2019-10-29 16:07:52.272554116 +0300
-@@ -16,50 +16,235 @@
+diff -bpruN a/include/xen/interface/hvm/hvm_op.h b/include/xen/interface/hvm/hvm_op.h
+--- a/include/xen/interface/hvm/hvm_op.h	2020-05-02 18:26:50.000000000 +0300
++++ b/include/xen/interface/hvm/hvm_op.h	2020-05-13 22:55:11.116603252 +0300
+@@ -16,13 +16,18 @@
   * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
   * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
   * DEALINGS IN THE SOFTWARE.
@@ -4085,12 +4345,9 @@ diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/hvm/hvm_op.h b/include
  #define HVMOP_set_param           0
  #define HVMOP_get_param           1
  struct xen_hvm_param {
--    domid_t  domid;    /* IN */
--    uint32_t index;    /* IN */
--    uint64_t value;    /* IN/OUT */
-+	domid_t  domid;    /* IN */
-+	uint32_t index;    /* IN */
-+	uint64_t value;    /* IN/OUT */
+@@ -30,24 +35,65 @@ struct xen_hvm_param {
+     uint32_t index;    /* IN */
+     uint64_t value;    /* IN/OUT */
  };
 -DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_param);
 +typedef struct xen_hvm_param xen_hvm_param_t;
@@ -4115,27 +4372,22 @@ diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/hvm/hvm_op.h b/include
 +} hvmmem_type_t;
  
  /* Hint from PV drivers for pagetable destruction. */
--#define HVMOP_pagetable_dying       9
-+#define HVMOP_pagetable_dying        9
+ #define HVMOP_pagetable_dying       9
  struct xen_hvm_pagetable_dying {
--    /* Domain with a pagetable about to be destroyed. */
--    domid_t  domid;
--    /* guest physical address of the toplevel pagetable dying */
--    aligned_u64 gpa;
-+	/* Domain with a pagetable about to be destroyed. */
-+	domid_t  domid;
+     /* Domain with a pagetable about to be destroyed. */
+     domid_t  domid;
 +	uint16_t pad[3]; /* align next field on 8-byte boundary */
-+	/* guest physical address of the toplevel pagetable dying */
+     /* guest physical address of the toplevel pagetable dying */
+-    aligned_u64 gpa;
 +	uint64_t gpa;
  };
  typedef struct xen_hvm_pagetable_dying xen_hvm_pagetable_dying_t;
  DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_pagetable_dying_t);
-- 
+  
 -enum hvmmem_type_t {
 -    HVMMEM_ram_rw,             /* Normal read/write guest RAM */
 -    HVMMEM_ram_ro,             /* Read-only; writes are discarded */
 -    HVMMEM_mmio_dm,            /* Reads and write go to the device model */
-+
 +/* Get the current Xen time, in nanoseconds since system boot. */
 +#define HVMOP_get_time              10
 +struct xen_hvm_get_time {
@@ -4165,22 +4417,11 @@ diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/hvm/hvm_op.h b/include
  
  #define HVMOP_get_mem_type    15
  /* Return hvmmem_type_t for the specified pfn. */
- struct xen_hvm_get_mem_type {
--    /* Domain to be queried. */
--    domid_t domid;
--    /* OUT variable. */
--    uint16_t mem_type;
--    uint16_t pad[2]; /* align next field on 8-byte boundary */
--    /* IN variable. */
--    uint64_t pfn;
-+	/* Domain to be queried. */
-+	domid_t domid;
-+	/* OUT variable. */
-+	uint16_t mem_type;
-+	uint16_t pad[2]; /* align next field on 8-byte boundary */
-+	/* IN variable. */
-+	uint64_t pfn;
-+};
+@@ -60,6 +106,145 @@ struct xen_hvm_get_mem_type {
+     /* IN variable. */
+     uint64_t pfn;
+ };
+-DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_get_mem_type);
 +typedef struct xen_hvm_get_mem_type xen_hvm_get_mem_type_t;
 +DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_get_mem_type_t);
 +
@@ -4215,8 +4456,7 @@ diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/hvm/hvm_op.h b/include
 +struct xen_hvm_evtchn_upcall_vector {
 +	uint32_t vcpu;
 +	uint8_t vector;
- };
--DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_get_mem_type);
++};
 +typedef struct xen_hvm_evtchn_upcall_vector xen_hvm_evtchn_upcall_vector_t;
 +DEFINE_GUEST_HANDLE_STRUCT(xen_hvm_evtchn_upcall_vector_t);
 +
@@ -4324,9 +4564,9 @@ diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/hvm/hvm_op.h b/include
 + * indent-tabs-mode: nil
 + * End:
 + */
-diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/hvm/ioreq.h b/include/xen/interface/hvm/ioreq.h
+diff -bpruN a/include/xen/interface/hvm/ioreq.h b/include/xen/interface/hvm/ioreq.h
 --- a/include/xen/interface/hvm/ioreq.h	1970-01-01 03:00:00.000000000 +0300
-+++ b/include/xen/interface/hvm/ioreq.h	2019-10-29 16:07:52.272554116 +0300
++++ b/include/xen/interface/hvm/ioreq.h	2020-05-13 22:55:11.116603252 +0300
 @@ -0,0 +1,138 @@
 +/*
 + * ioreq.h: I/O request definitions for device models
@@ -4466,9 +4706,9 @@ diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/hvm/ioreq.h b/include/
 + * indent-tabs-mode: nil
 + * End:
 + */
-diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/memory.h b/include/xen/interface/memory.h
---- a/include/xen/interface/memory.h	2019-10-17 23:45:44.000000000 +0300
-+++ b/include/xen/interface/memory.h	2019-10-29 16:07:52.272554116 +0300
+diff -bpruN a/include/xen/interface/memory.h b/include/xen/interface/memory.h
+--- a/include/xen/interface/memory.h	2020-05-02 18:26:50.000000000 +0300
++++ b/include/xen/interface/memory.h	2020-05-13 22:55:11.116603252 +0300
 @@ -113,6 +113,11 @@ DEFINE_GUEST_HANDLE_STRUCT(xen_memory_ex
  #define XENMEM_maximum_reservation  4
  
@@ -4508,10 +4748,10 @@ diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/memory.h b/include/xen
 +DEFINE_GUEST_HANDLE_STRUCT(xen_get_mfn_from_pfn);
  
  /*
-  * Prevent the balloon driver from changing the memory reservation
-diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/vcpu.h b/include/xen/interface/vcpu.h
---- a/include/xen/interface/vcpu.h	2019-10-17 23:45:44.000000000 +0300
-+++ b/include/xen/interface/vcpu.h	2019-10-29 16:07:52.272554116 +0300
+  * Unmaps the page appearing at a particular GPFN from the specified guest's
+diff -bpruN a/include/xen/interface/vcpu.h b/include/xen/interface/vcpu.h
+--- a/include/xen/interface/vcpu.h	2020-05-02 18:26:50.000000000 +0300
++++ b/include/xen/interface/vcpu.h	2020-05-13 22:55:11.117603256 +0300
 @@ -220,4 +220,48 @@ struct vcpu_register_time_memory_area {
  };
  DEFINE_GUEST_HANDLE_STRUCT(vcpu_register_time_memory_area);
@@ -4561,9 +4801,9 @@ diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/vcpu.h b/include/xen/i
 +};
 +
  #endif /* __XEN_PUBLIC_VCPU_H__ */
-diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/xen.h b/include/xen/interface/xen.h
---- a/include/xen/interface/xen.h	2019-10-17 23:45:44.000000000 +0300
-+++ b/include/xen/interface/xen.h	2019-10-29 16:07:52.273554118 +0300
+diff -bpruN a/include/xen/interface/xen.h b/include/xen/interface/xen.h
+--- a/include/xen/interface/xen.h	2020-05-02 18:26:50.000000000 +0300
++++ b/include/xen/interface/xen.h	2020-05-13 22:55:11.117603256 +0300
 @@ -115,6 +115,7 @@
  #define VIRQ_XC_RESERVED 11 /* G. Reserved for XenClient                     */
  #define VIRQ_ENOMEM     12 /* G. (DOM0) Low on heap memory       */
@@ -4684,16 +4924,36 @@ diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/interface/xen.h b/include/xen/in
  #else /* __ASSEMBLY__ */
  
  /* In assembly code we cannot use C numeric constant suffixes. */
-diff -uNrp -x '*.orig' -x '*.rej' a/include/xen/xen-ops.h b/include/xen/xen-ops.h
---- a/include/xen/xen-ops.h	2019-10-17 23:45:44.000000000 +0300
-+++ b/include/xen/xen-ops.h	2019-10-29 16:07:52.273554118 +0300
-@@ -216,4 +216,9 @@ static inline void xen_preemptible_hcall
- 
- #endif /* CONFIG_PREEMPT */
+diff -bpruN a/include/xen/xen-ops.h b/include/xen/xen-ops.h
+--- a/include/xen/xen-ops.h	2020-05-02 18:26:50.000000000 +0300
++++ b/include/xen/xen-ops.h	2020-05-13 22:59:03.896465093 +0300
+@@ -239,6 +239,11 @@ static inline void xen_preemptible_hcall
+ 	__this_cpu_write(xen_in_preemptible_hcall, false);
+ }
  
 +struct vm_struct * xen_remap_domain_mfn_range_in_kernel(unsigned long mfn,
 +        int nr, unsigned domid);
 +void xen_unmap_domain_mfn_range_in_kernel(struct vm_struct *area, int nr,
-+		unsigned domid);
++               unsigned domid);
 +
+ #endif /* CONFIG_PREEMPT */
+ 
  #endif /* INCLUDE_XEN_OPS_H */
+--- a/drivers/gpu/drm/i915/Kconfig	2020-05-06 09:16:50.000000000 +0300
++++ b/drivers/gpu/drm/i915/Kconfig	2020-05-13 11:10:42.853865062 +0300
+@@ -136,6 +136,15 @@ config DRM_I915_GVT_KVMGT
+ 	  Choose this option if you want to enable KVMGT support for
+ 	  Intel GVT-g.
+ 
++config DRM_I915_GVT_XENGT
++       tristate "Enable XEN support for Intel GVT-g"
++       depends on DRM_I915_GVT
++       depends on XEN
++       default n
++       help
++         Choose this option if you want to enable XENGT support for
++         Intel GVT-g under XEN hypervisor environment.
++
+ menu "drm/i915 Debugging"
+ depends on DRM_I915
+ depends on EXPERT
