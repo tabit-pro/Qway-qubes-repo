@@ -1,0 +1,327 @@
+diff -bpruN a/dri2.c b/dri2.c
+--- a/dri2.c	2019-11-23 01:56:38.000000000 +0300
++++ b/dri2.c	2020-05-19 16:29:37.275145261 +0300
+@@ -36,6 +36,8 @@
+ #include "dix-config.h"
+ #endif
+ 
++#include "xf86-qubes-common.h"
++
+ #include <time.h>
+ #include "list.h"
+ #include "xf86.h"
+diff -bpruN a/driver.c b/driver.c
+--- a/driver.c	2019-11-23 01:56:38.000000000 +0300
++++ b/driver.c	2020-05-19 16:40:08.376178677 +0300
+@@ -33,6 +33,8 @@
+ #include "dix-config.h"
+ #endif
+ 
++#include "xf86-qubes-common.h"
++
+ #include <unistd.h>
+ #include <fcntl.h>
+ #include "xf86.h"
+@@ -52,7 +54,6 @@
+ #include "shadow.h"
+ #include "xf86xv.h"
+ #include <X11/extensions/Xv.h>
+-#include <xorg-config.h>
+ #ifdef XSERVER_PLATFORM_BUS
+ #include "xf86platformBus.h"
+ #endif
+@@ -104,7 +105,7 @@ static Bool ms_platform_probe(DriverPtr
+ 
+ _X_EXPORT DriverRec modesetting = {
+     1,
+-    "modesetting",
++    "modesettingqbs",
+     Identify,
+     Probe,
+     AvailableOptions,
+@@ -125,6 +126,7 @@ static SymTabRec Chipsets[] = {
+ 
+ static const OptionInfoRec Options[] = {
+     {OPTION_SW_CURSOR, "SWcursor", OPTV_BOOLEAN, {0}, FALSE},
++    {OPTION_GUI_DOMID, "GUIDomID", OPTV_INTEGER, {0}, FALSE },
+     {OPTION_DEVICE_PATH, "kmsdev", OPTV_STRING, {0}, FALSE},
+     {OPTION_SHADOW_FB, "ShadowFB", OPTV_BOOLEAN, {0}, FALSE},
+     {OPTION_ACCEL_METHOD, "AccelMethod", OPTV_STRING, {0}, FALSE},
+@@ -139,7 +141,7 @@ int ms_entity_index = -1;
+ static MODULESETUPPROTO(Setup);
+ 
+ static XF86ModuleVersionInfo VersRec = {
+-    "modesetting",
++    "modesettingqbs",
+     MODULEVENDORSTRING,
+     MODINFOSTRING1,
+     MODINFOSTRING2,
+@@ -153,7 +155,7 @@ static XF86ModuleVersionInfo VersRec = {
+     {0, 0, 0, 0}
+ };
+ 
+-_X_EXPORT XF86ModuleData modesettingModuleData = { &VersRec, Setup, NULL };
++_X_EXPORT XF86ModuleData modesettingqbsModuleData = { &VersRec, Setup, NULL };
+ 
+ static void *
+ Setup(void *module, void *opts, int *errmaj, int *errmin)
+@@ -182,7 +184,7 @@ Setup(void *module, void *opts, int *err
+ static void
+ Identify(int flags)
+ {
+-    xf86PrintChipsets("modesetting", "Driver for Modesetting Kernel Drivers",
++    xf86PrintChipsets("modesettingqbs", "Driver for Modesetting Kernel Drivers",
+                       Chipsets);
+ }
+ 
+@@ -326,6 +328,10 @@ AvailableOptions(int chipid, int busid)
+     return Options;
+ }
+ 
++#ifndef HW_SKIP_CONSOLE
++#define HW_SKIP_CONSOLE 4
++#endif
++
+ static Bool
+ ms_driver_func(ScrnInfoPtr scrn, xorgDriverFuncOp op, void *data)
+ {
+@@ -334,7 +340,7 @@ ms_driver_func(ScrnInfoPtr scrn, xorgDri
+     switch (op) {
+     case GET_REQUIRED_HW_INTERFACES:
+         flag = (CARD32 *) data;
+-        (*flag) = 0;
++        (*flag) = HW_SKIP_CONSOLE;
+         return TRUE;
+     case SUPPORTS_SERVER_FDS:
+         return TRUE;
+@@ -347,8 +353,8 @@ static void
+ ms_setup_scrn_hooks(ScrnInfoPtr scrn)
+ {
+     scrn->driverVersion = 1;
+-    scrn->driverName = "modesetting";
+-    scrn->name = "modeset";
++    scrn->driverName = "modesettingqbs";
++    scrn->name = "modesetqbs";
+ 
+     scrn->Probe = NULL;
+     scrn->PreInit = PreInit;
+@@ -461,7 +467,7 @@ Probe(DriverPtr drv, int flags)
+      * Find the config file Device sections that match this
+      * driver, and return if there are none.
+      */
+-    if ((numDevSections = xf86MatchDevice("modesetting", &devSections)) <= 0) {
++    if ((numDevSections = xf86MatchDevice("modesettingqbs", &devSections)) <= 0) {
+         return FALSE;
+     }
+ 
+@@ -982,6 +988,8 @@ PreInit(ScrnInfoPtr pScrn, int flags)
+         ms->drmmode.sw_cursor = TRUE;
+     }
+ 
++    xf86GetOptValInteger(ms->drmmode.Options, OPTION_GUI_DOMID, (int*)&gui_domid);
++
+     ms->cursor_width = 64;
+     ms->cursor_height = 64;
+     ret = drmGetCap(ms->fd, DRM_CAP_CURSOR_WIDTH, &value);
+@@ -1533,7 +1541,8 @@ SetMaster(ScrnInfoPtr pScrn)
+         xf86DrvMsg(pScrn->scrnIndex, X_ERROR, "drmSetMaster failed: %s\n",
+                    strerror(errno));
+ 
+-    return ret == 0;
++    //return ret == 0;
++    return TRUE;
+ }
+ 
+ /* When the root window is created, initialize the screen contents from
+@@ -1555,6 +1564,102 @@ CreateWindow_oneshot(WindowPtr pWin)
+     return ret;
+ }
+ 
++/* QUBES replacements */
++
++static struct xf86_qubes_pixmap *
++qubes_alloc_pixmap_private(ScreenPtr pScreen, size_t size) {
++    ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
++    modesettingPtr ms = modesettingPTR(pScrn);
++    struct xf86_qubes_pixmap *priv;
++    size_t pages;
++
++    pages = (size + XC_PAGE_SIZE - 1) >> XC_PAGE_SHIFT;
++
++    priv = calloc(1, sizeof(struct xf86_qubes_pixmap) + pages * sizeof(uint32_t));
++    if (priv == NULL)
++        return NULL;
++
++    priv->pages = pages;
++    priv->refs = (uint32_t *) (((uint8_t *) priv) + sizeof(struct xf86_qubes_pixmap));
++
++    priv->data = xengntshr_share_pages(xgs,
++                                       gui_domid,
++                                       pages,
++                                       priv->refs,
++                                       0);
++    if (priv->data == NULL) {
++        xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
++                   "Failed to allocate %zu grant pages!\n", pages);
++        free(priv);
++        return NULL;
++    }
++
++    return priv;
++}
++
++static void qubes_free_pixmap_private(struct xf86_qubes_pixmap *priv) {
++    xengntshr_unshare(xgs, priv->data, priv->pages);
++    // Also frees refs
++    free(priv);
++}
++
++static Bool
++qubes_destroy_pixmap(PixmapPtr pixmap) {
++    struct xf86_qubes_pixmap *priv;
++
++    priv = xf86_qubes_pixmap_get_private(pixmap);
++    if (priv != NULL && pixmap->refcnt == 1)
++        qubes_free_pixmap_private(priv);
++
++    return fbDestroyPixmap(pixmap);
++}
++
++static PixmapPtr
++qubes_create_pixmap(ScreenPtr pScreen, int width, int height, int depth,
++                    unsigned hint)
++{
++    ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
++    modesettingPtr ms = modesettingPTR(pScrn);
++    PixmapPtr pixmap;
++    struct xf86_qubes_pixmap *priv;
++    size_t stride;
++    size_t size;
++
++     if (width == 0 || height == 0 || depth < 15)
++          return fbCreatePixmap(pScreen, width, height, depth, hint);
++
++    pixmap = fbCreatePixmap(pScreen, 0, 0, depth, hint);
++    if (!pixmap)
++        return NULL;
++
++    stride = PixmapBytePad(width, depth);
++    size = stride * height;
++
++    priv = qubes_alloc_pixmap_private(pScreen, size);
++    if (priv == NULL)
++        goto err_destroy_pixmap;
++    xf86_qubes_pixmap_set_private(pixmap, priv);
++
++    if (!pScreen->ModifyPixmapHeader(pixmap,
++                                    width,
++                                    height,
++                                    depth,
++                                    BitsPerPixel(depth),
++                                    stride,
++                                    priv->data))
++        goto err_unshare;
++
++    return pixmap;
++
++err_unshare:
++    xengntshr_unshare(xgs, priv->data, priv->pages);
++    free(priv);
++err_destroy_pixmap:
++    fbDestroyPixmap(pixmap);
++
++    return NULL;
++}
++
+ static Bool
+ ScreenInit(ScreenPtr pScreen, int argc, char **argv)
+ {
+@@ -1596,9 +1701,14 @@ ScreenInit(ScreenPtr pScreen, int argc,
+     if (!miSetPixmapDepths())
+         return FALSE;
+ 
+-    if (!dixRegisterScreenSpecificPrivateKey
+-        (pScreen, &ms->drmmode.pixmapPrivateKeyRec, PRIVATE_PIXMAP,
+-         sizeof(msPixmapPrivRec))) {
++    if (!xf86_qubes_pixmap_register_private())
++       return FALSE;
++
++    ms->drmmode.pixmapPrivateKeyRec = xf86_qubes_pixmap_get_private_key();
++
++    xgs = xengntshr_open(NULL, 0);
++    if (xgs == NULL) {
++        xf86DrvMsg(pScrn->scrnIndex, X_ERROR, "Failed to open xengntshr!\n");
+         return FALSE;
+     }
+ 
+@@ -1639,6 +1749,11 @@ ScreenInit(ScreenPtr pScreen, int argc,
+         return FALSE;
+     }
+ 
++    pScreen->CreatePixmap = qubes_create_pixmap;
++    pScreen->DestroyPixmap = qubes_destroy_pixmap;
++    PictureScreenPtr ps = GetPictureScreenIfSet(pScreen);
++    ps->Glyphs = fbGlyphs;
++
+     ms->createScreenResources = pScreen->CreateScreenResources;
+     pScreen->CreateScreenResources = CreateScreenResources;
+ 
+diff -bpruN a/driver.h b/driver.h
+--- a/driver.h	2019-11-23 01:56:38.000000000 +0300
++++ b/driver.h	2020-05-19 16:29:37.277145271 +0300
+@@ -45,6 +45,7 @@
+ 
+ typedef enum {
+     OPTION_SW_CURSOR,
++    OPTION_GUI_DOMID,
+     OPTION_DEVICE_PATH,
+     OPTION_SHADOW_FB,
+     OPTION_ACCEL_METHOD,
+diff -bpruN a/drmmode_display.c b/drmmode_display.c
+--- a/drmmode_display.c	2019-11-23 01:56:38.000000000 +0300
++++ b/drmmode_display.c	2020-05-19 16:29:37.277145271 +0300
+@@ -29,6 +29,8 @@
+ #include "dix-config.h"
+ #endif
+ 
++#include "xf86-qubes-common.h"
++
+ #include <errno.h>
+ #include <sys/ioctl.h>
+ #include <sys/mman.h>
+diff -bpruN a/pageflip.c b/pageflip.c
+--- a/pageflip.c	2019-11-23 01:56:38.000000000 +0300
++++ b/pageflip.c	2020-05-19 16:29:37.278145275 +0300
+@@ -24,7 +24,7 @@
+ #include "dix-config.h"
+ #endif
+ 
+-#include <xserver_poll.h>
++#include "xf86-qubes-common.h"
+ #include <xf86drm.h>
+ 
+ #include "driver.h"
+diff -bpruN a/present.c b/present.c
+--- a/present.c	2019-11-23 01:56:38.000000000 +0300
++++ b/present.c	2020-05-19 16:29:37.278145275 +0300
+@@ -24,6 +24,8 @@
+ #include "dix-config.h"
+ #endif
+ 
++#include "xf86-qubes-common.h"
++
+ #include <assert.h>
+ #include <errno.h>
+ #include <fcntl.h>
+diff -bpruN a/vblank.c b/vblank.c
+--- a/vblank.c	2019-11-23 01:56:38.000000000 +0300
++++ b/vblank.c	2020-05-19 16:29:37.278145275 +0300
+@@ -29,6 +29,8 @@
+ #include "dix-config.h"
+ #endif
+ 
++#include "xf86-qubes-common.h"
++
+ #include <unistd.h>
+ #include <xf86.h>
+ #include <xf86Crtc.h>
