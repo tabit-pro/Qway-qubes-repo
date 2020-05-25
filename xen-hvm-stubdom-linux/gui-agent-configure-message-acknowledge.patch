@@ -1,0 +1,32 @@
+diff --git a/gui-agent-qemu/qubes-gui.c b/gui-agent-qemu/qubes-gui.c
+index 436a2cd..6f450ae 100644
+--- a/gui-agent-qemu/qubes-gui.c
++++ b/gui-agent-qemu/qubes-gui.c
+@@ -203,6 +203,7 @@ static void process_pv_resize(QubesGuiState * qs)
+ 
+ static void handle_configure(QubesGuiState * qs)
+ {
++    struct msg_hdr hdr;
+     struct msg_configure r;
+     read_data(qs->vchan, (char *) &r, sizeof(r));
+     fprintf(stderr,
+@@ -211,6 +212,10 @@ static void handle_configure(QubesGuiState * qs)
+ 
+     qs->x = r.x;
+     qs->y = r.y;
++    //send configure acknowledge
++    hdr.type = MSG_CONFIGURE;
++    hdr.window = QUBES_MAIN_WINDOW;
++    write_message(qs->vchan, hdr, r);
+ }
+ 
+ static int is_bitset(unsigned char *keys, int num)
+@@ -647,7 +652,7 @@ uint8_t *qubesgui_alloc_surface_data(int width, int height, uint32_t **refs) {
+         fprintf(stderr, "GUI domain id not set before first surface allocation!\n");
+         return NULL;
+     }
+-   
++
+     pages = ((width * height * 4) + XC_PAGE_SIZE - 1) >> XC_PAGE_SHIFT;
+ 
+     *refs = calloc(pages, sizeof(uint32_t));
