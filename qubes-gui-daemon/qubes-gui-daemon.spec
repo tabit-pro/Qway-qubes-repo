@@ -64,8 +64,10 @@ BuildRequires:	qubes-libvchan-xen-devel
 Provides:     qubes-gui-dom0-compiz
 
 Source0: https://github.com/QubesOS/qubes-gui-daemon/archive/v%{version}.tar.gz
+Patch0: 0001-pacat-register-callbacks-on-stream-ready.patch
 Patch1: 0002-event-configure.patch
 Patch2: 0003-fullscreen-stubdomain-window.patch
+Patch3: 0004-fix-indentation.patch
 
 %description
 The Qubes GUI virtualization infrastructure that needs to be installed in GuiVM.
@@ -109,8 +111,10 @@ Dom0 files for Qubes AUDIO virtualization. This include core-admin extension, po
 %prep
 #removed %setup -q -n qubes-gui-daemon-%{version}
 %setup -q 
+%patch0 -p1
 %patch1 -p1
 %patch2 -p1
+%patch3 -p1
 
 %build
 %{?set_build_flags}
