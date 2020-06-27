@@ -1,8 +1,16 @@
 diff --git a/gui-daemon/xside.c b/gui-daemon/xside.c
-index 9b4e0cd..3d6db00 100644
+index 6300dd4..b9d6d6f 100644
 --- a/gui-daemon/xside.c
 +++ b/gui-daemon/xside.c
-@@ -1179,6 +1179,27 @@ static void process_xevent_configure(Ghandles * g, const XConfigureEvent * ev)
+@@ -1073,6 +1073,7 @@ static void send_configure(Ghandles * g, struct windowdata *vm_window, int x, in
+     msg.width = w;
+     msg.x = x;
+     msg.y = y;
++    msg.override_redirect = 0;
+     write_message(g->vchan, hdr, msg);
+ }
+ 
+@@ -1300,6 +1301,27 @@ static void process_xevent_configure(Ghandles * g, const XConfigureEvent * ev)
                 vm_window->width, vm_window->height);
  }
  
@@ -30,42 +38,33 @@ index 9b4e0cd..3d6db00 100644
  /* handle VM message: MSG_CONFIGURE
   * check if we like new dimensions/position and move relevant window */
  static void handle_configure_from_vm(Ghandles * g, struct windowdata *vm_window)
-@@ -1247,16 +1268,29 @@ static void handle_configure_from_vm(Ghandles * g, struct windowdata *vm_window)
+@@ -1364,6 +1386,15 @@ static void handle_configure_from_vm(Ghandles * g, struct windowdata *vm_window)
      }
      if (!conf_changed)
          return;
--    vm_window->width = width;
--    vm_window->height = height;
--    vm_window->x = x;
--    vm_window->y = y;
--    if (vm_window->override_redirect)
--        // do not let menu window hide its color frame by moving outside of the screen
--        // if it is located offscreen, then allow negative x/y
--        force_on_screen(g, vm_window, 0,
 +
-+    // Try to fullscreen fullsized window (stubdomain gui-agent)
++    // Force fallback from fullscreen for stubdomain gui-agent (remote_winid = 1)
++    if ((int) vm_window->width == g->root_width &&
++        (int) vm_window->height == g->root_height &&
++        vm_window->x == 0 &&
++        vm_window->y == 0 &&
++        vm_window->remote_winid == 1)
++          send_fullscreen_event(0, g, vm_window);
++
+     vm_window->width = width;
+     vm_window->height = height;
+     vm_window->x = x;
+@@ -1374,6 +1405,13 @@ static void handle_configure_from_vm(Ghandles * g, struct windowdata *vm_window)
+         force_on_screen(g, vm_window, 0,
+                 "handle_configure_from_vm");
+     moveresize_vm_window(g, vm_window);
++
++    // Force fullscreen fullsized window for stubdomain gui-agent (remote_winid = 1)
 +    if (g->allow_fullscreen &&
 +        (int) width == g->root_width &&
-+        (int) height == g->root_height)
-+            send_fullscreen_event(1, g, vm_window);
-+    else if (g->allow_fullscreen &&
-+        (int) vm_window->width == g->root_width &&
-+        (int) vm_window->height == g->root_height)
-+            send_fullscreen_event(0, g, vm_window);
-+    else
-+    {
-+        vm_window->width = width;
-+        vm_window->height = height;
-+        vm_window->x = x;
-+        vm_window->y = y;
-+        if (vm_window->override_redirect)
-+            // do not let menu window hide its color frame by moving outside of the screen
-+            // if it is located offscreen, then allow negative x/y
-+            force_on_screen(g, vm_window, 0,
-                 "handle_configure_from_vm");
--    moveresize_vm_window(g, vm_window);
-+        moveresize_vm_window(g, vm_window);
-+    }
++        (int) height == g->root_height &&
++        vm_window->remote_winid == 1)
++          send_fullscreen_event(1, g, vm_window);
  }
  
  /* handle local Xserver event: EnterNotify, LeaveNotify

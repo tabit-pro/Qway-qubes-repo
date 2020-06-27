@@ -26,8 +26,8 @@
 #removed %{!?python_sitearch: %define python_sitearch %(%{__python} -c "from distutils.sysconfig import get_python_lib; print get_python_lib(1)")}
 
 Name:		qubes-gui-daemon	
-Version:	4.1.5
-Release:	2%{dist}
+Version:	4.1.6
+Release:	6%{dist}
 Summary:	The Qubes GUI virtualization (Dom0 side) 
 
 Group:		Qubes
@@ -64,7 +64,6 @@ BuildRequires:	qubes-libvchan-xen-devel
 Provides:     qubes-gui-dom0-compiz
 
 Source0: https://github.com/QubesOS/qubes-gui-daemon/archive/v%{version}.tar.gz
-Patch0: 0001-mkwindow.patch
 Patch1: 0002-event-configure.patch
 Patch2: 0003-fullscreen-stubdomain-window.patch
 
@@ -110,7 +109,6 @@ Dom0 files for Qubes AUDIO virtualization. This include core-admin extension, po
 %prep
 #removed %setup -q -n qubes-gui-daemon-%{version}
 %setup -q 
-%patch0 -p1
 %patch1 -p1
 %patch2 -p1
 
