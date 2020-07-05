@@ -6,10 +6,10 @@ Add ability to configure xengt video device with options.
 Signed-off-by: Ivan Kardykov <kardykov@tabit.pro>
 ---
 diff --git a/docs/schemas/domaincommon.rng b/docs/schemas/domaincommon.rng
-index 23cfd74..c04043d 100644
+index 011ce9f..1fbee11 100644
 --- a/docs/schemas/domaincommon.rng
 +++ b/docs/schemas/domaincommon.rng
-@@ -3731,6 +3731,26 @@
+@@ -3976,6 +3976,26 @@
                  </attribute>
                </optional>
              </group>
@@ -37,10 +37,10 @@ index 23cfd74..c04043d 100644
            <optional>
              <attribute name="vram">
 diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
-index e8f78ab..136c838 100644
+index 8b818b7..7b08a38 100644
 --- a/src/conf/domain_conf.c
 +++ b/src/conf/domain_conf.c
-@@ -748,6 +748,7 @@ VIR_ENUM_IMPL(virDomainVideo,
+@@ -785,6 +785,7 @@ VIR_ENUM_IMPL(virDomainVideo,
                "cirrus",
                "vmvga",
                "xen",
@@ -48,7 +48,15 @@ index e8f78ab..136c838 100644
                "vbox",
                "qxl",
                "parallels",
-@@ -15601,6 +15602,9 @@ virDomainVideoDefParseXML(virDomainXMLOptionPtr xmlopt,
+@@ -15845,6 +15846,7 @@ virDomainVideoDefaultRAM(const virDomainDef *def,
+     switch (type) {
+     case VIR_DOMAIN_VIDEO_TYPE_VGA:
+     case VIR_DOMAIN_VIDEO_TYPE_CIRRUS:
++    case VIR_DOMAIN_VIDEO_TYPE_XENGT:
+     case VIR_DOMAIN_VIDEO_TYPE_VMVGA:
+         if (def->virtType == VIR_DOMAIN_VIRT_VBOX)
+             return 8 * 1024;
+@@ -16009,6 +16011,9 @@ virDomainVideoDefParseXML(virDomainXMLOptionPtr xmlopt,
      g_autofree char *ram = NULL;
      g_autofree char *vgamem = NULL;
      g_autofree char *primary = NULL;
@@ -58,7 +66,7 @@ index e8f78ab..136c838 100644
  
      if (!(def = virDomainVideoDefNew(xmlopt)))
          return NULL;
-@@ -15619,6 +15623,9 @@ virDomainVideoDefParseXML(virDomainXMLOptionPtr xmlopt,
+@@ -16027,6 +16032,9 @@ virDomainVideoDefParseXML(virDomainXMLOptionPtr xmlopt,
                  vram64 = virXMLPropString(cur, "vram64");
                  vgamem = virXMLPropString(cur, "vgamem");
                  heads = virXMLPropString(cur, "heads");
@@ -68,27 +76,42 @@ index e8f78ab..136c838 100644
  
                  if ((primary = virXMLPropString(cur, "primary")) != NULL) {
                      ignore_value(virStringParseYesNo(primary, &def->primary));
-@@ -15728,6 +15735,15 @@ virDomainVideoDefParseXML(virDomainXMLOptionPtr xmlopt,
+@@ -16136,6 +16144,30 @@ virDomainVideoDefParseXML(virDomainXMLOptionPtr xmlopt,
          }
      }
  
-+    if (low_gm_sz)
-+        virStrToLong_uip(low_gm_sz, NULL, 10, &def->low_gm_sz);
++    if (low_gm_sz) {
++        if (virStrToLong_uip(low_gm_sz, NULL, 10, &def->low_gm_sz) < 0) {
++	    virReportError(VIR_ERR_INTERNAL_ERROR,
++                           _("cannot parse video low_gm_sz, '%s'"), low_gm_sz);
++            goto error;
++        }
++    }
 +
-+    if (high_gm_sz)
-+        virStrToLong_uip(high_gm_sz, NULL, 10, &def->high_gm_sz);
++    if (high_gm_sz) {
++        if (virStrToLong_uip(high_gm_sz, NULL, 10, &def->high_gm_sz) < 0) {
++	    virReportError(VIR_ERR_INTERNAL_ERROR,
++                           _("cannot parse video high_gm_sz, '%s'"), high_gm_sz);
++            goto error;
++        }
++    }
 +
-+    if (fence_sz)
-+        virStrToLong_uip(fence_sz, NULL, 10, &def->fence_sz);
++    if (fence_sz) {
++        if (virStrToLong_uip(fence_sz, NULL, 10, &def->fence_sz) < 0) {
++	    virReportError(VIR_ERR_INTERNAL_ERROR,
++                           _("cannot parse video fence_sz, '%s'"), fence_sz);
++            goto error;
++        }
++    }
 +
      if (virDomainDeviceInfoParseXML(xmlopt, node, &def->info, flags) < 0)
          goto error;
  
 diff --git a/src/conf/domain_conf.h b/src/conf/domain_conf.h
-index abed8c9..d4afcfa 100644
+index 959f0d4..ab52f19 100644
 --- a/src/conf/domain_conf.h
 +++ b/src/conf/domain_conf.h
-@@ -1397,6 +1397,7 @@ typedef enum {
+@@ -1448,6 +1448,7 @@ typedef enum {
      VIR_DOMAIN_VIDEO_TYPE_CIRRUS,
      VIR_DOMAIN_VIDEO_TYPE_VMVGA,
      VIR_DOMAIN_VIDEO_TYPE_XEN,
@@ -96,7 +119,7 @@ index abed8c9..d4afcfa 100644
      VIR_DOMAIN_VIDEO_TYPE_VBOX,
      VIR_DOMAIN_VIDEO_TYPE_QXL,
      VIR_DOMAIN_VIDEO_TYPE_PARALLELS, /* pseudo device for VNC in containers */
-@@ -1445,6 +1446,9 @@ struct _virDomainVideoDef {
+@@ -1496,6 +1497,9 @@ struct _virDomainVideoDef {
      unsigned int vram64; /* kibibytes (multiples of 1024) */
      unsigned int vgamem; /* kibibytes (multiples of 1024) */
      unsigned int heads;
@@ -107,10 +130,10 @@ index abed8c9..d4afcfa 100644
      virDomainVideoAccelDefPtr accel;
      virDomainVideoResolutionDefPtr res;
 diff --git a/src/libxl/libxl_conf.c b/src/libxl/libxl_conf.c
-index 27de67d..837be0d 100644
+index 68df467..7cd4f14 100644
 --- a/src/libxl/libxl_conf.c
 +++ b/src/libxl/libxl_conf.c
-@@ -2404,6 +2404,15 @@ libxlMakeVideo(virDomainDefPtr def, libxl_domain_config *d_config)
+@@ -2434,6 +2434,15 @@ libxlMakeVideo(virDomainDefPtr def, libxl_domain_config *d_config)
              }
              break;
  #endif
@@ -127,14 +150,14 @@ index 27de67d..837be0d 100644
          default:
              virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
 diff --git a/src/libxl/libxl_domain.c b/src/libxl/libxl_domain.c
-index 915aaeb..235bbdb 100644
+index cc53a76..6410f2a 100644
 --- a/src/libxl/libxl_domain.c
 +++ b/src/libxl/libxl_domain.c
-@@ -329,6 +329,7 @@ libxlDomainDeviceDefPostParse(virDomainDeviceDefPtr dev,
-                     dev->data.video->vram = 8 * 1024;
-                 }
-             break;
-+        case VIR_DOMAIN_VIDEO_TYPE_XENGT:
-         case VIR_DOMAIN_VIDEO_TYPE_CIRRUS:
-             if (dev->data.video->vram == 0) {
-                 if (dm_type == LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN)
+@@ -339,6 +339,7 @@ libxlDomainDeviceDefPostParse(virDomainDeviceDefPtr dev,
+                             dev->data.video->vram = 8 * 1024;
+                     }
+                     break;
++                case VIR_DOMAIN_VIDEO_TYPE_XENGT:
+                 case VIR_DOMAIN_VIDEO_TYPE_CIRRUS:
+                     if (dev->data.video->vram == 0) {
+                         if (dm_type == LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN)
