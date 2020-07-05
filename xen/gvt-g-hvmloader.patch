@@ -1,6 +1,7 @@
-diff -uNr --show-c-function xen-4.12.0/tools/firmware/hvmloader/config.h xen-4.12.0.new/tools/firmware/hvmloader/config.h
---- xen-4.12.0/tools/firmware/hvmloader/config.h	2019-04-01 14:03:23.000000000 +0300
-+++ xen-4.12.0.new/tools/firmware/hvmloader/config.h	2019-09-05 18:07:49.749885207 +0300
+diff --git a/tools/firmware/hvmloader/config.h b/tools/firmware/hvmloader/config.h
+index d9b4713..bee125a 100644
+--- a/tools/firmware/hvmloader/config.h
++++ b/tools/firmware/hvmloader/config.h
 @@ -3,11 +3,11 @@
  
  #include <stdint.h>
@@ -15,9 +16,10 @@ diff -uNr --show-c-function xen-4.12.0/tools/firmware/hvmloader/config.h xen-4.1
  
  struct bios_config {
      const char *name;
-diff -uNr --show-c-function xen-4.12.0/tools/firmware/hvmloader/pci.c xen-4.12.0.new/tools/firmware/hvmloader/pci.c
---- xen-4.12.0/tools/firmware/hvmloader/pci.c	2019-04-01 14:03:23.000000000 +0300
-+++ xen-4.12.0.new/tools/firmware/hvmloader/pci.c	2019-09-05 18:07:49.749885207 +0300
+diff --git a/tools/firmware/hvmloader/pci.c b/tools/firmware/hvmloader/pci.c
+index dcd097a..9d66042 100644
+--- a/tools/firmware/hvmloader/pci.c
++++ b/tools/firmware/hvmloader/pci.c
 @@ -23,6 +23,7 @@
  #include "hypercall.h"
  #include "config.h"
@@ -36,15 +38,15 @@ diff -uNr --show-c-function xen-4.12.0/tools/firmware/hvmloader/pci.c xen-4.12.0
  void pci_setup(void)
  {
      uint8_t is_64bar, using_64bar, bar64_relocate = 0;
-@@ -84,6 +88,7 @@ void pci_setup(void)
-     uint32_t vga_devfn = 256;
+@@ -85,6 +89,7 @@ void pci_setup(void)
      uint16_t class, vendor_id, device_id;
      unsigned int bar, pin, link, isa_irq;
+     uint8_t pci_devfn_decode_type[256] = {};
 +    uint8_t is_x8086 = 0;
  
      /* Resources assignable to PCI devices via BARs. */
      struct resource {
-@@ -174,17 +187,9 @@ void pci_setup(void)
+@@ -182,17 +187,9 @@ void pci_setup(void)
              {
                  vga_devfn = devfn;
                  virtual_vga = VGA_pt;
@@ -64,7 +66,7 @@ diff -uNr --show-c-function xen-4.12.0/tools/firmware/hvmloader/pci.c xen-4.12.0
              }
              break;
          case 0x0680:
-@@ -355,6 +360,11 @@ void pci_setup(void)
+@@ -375,6 +372,11 @@ void pci_setup(void)
          bar64_relocate = 1;
      }
  
@@ -76,7 +78,7 @@ diff -uNr --show-c-function xen-4.12.0/tools/firmware/hvmloader/pci.c xen-4.12.0
      /* Relocate RAM that overlaps PCI space (in 64k-page chunks). */
      while ( (pci_mem_start >> PAGE_SHIFT) < hvm_info->low_mem_pgend )
      {
-@@ -477,6 +487,15 @@ void pci_setup(void)
+@@ -497,6 +499,15 @@ void pci_setup(void)
  
          bar_data |= (uint32_t)base;
          bar_data_upper = (uint32_t)(base >> 32);
@@ -92,7 +94,7 @@ diff -uNr --show-c-function xen-4.12.0/tools/firmware/hvmloader/pci.c xen-4.12.0
          base += bar_sz;
  
          if ( (base < resource->base) || (base > resource->max) )
-@@ -521,6 +540,41 @@ void pci_setup(void)
+@@ -537,6 +548,41 @@ void pci_setup(void)
  
      if ( vga_devfn != 256 )
      {
@@ -134,9 +136,11 @@ diff -uNr --show-c-function xen-4.12.0/tools/firmware/hvmloader/pci.c xen-4.12.0
          /*
           * VGA registers live in I/O space so ensure that primary VGA
           * has IO enabled, even if there is no I/O BAR on that
-diff -uNr --show-c-function xen-4.12.0/tools/firmware/hvmloader/vgt.h xen-4.12.0.new/tools/firmware/hvmloader/vgt.h
---- xen-4.12.0/tools/firmware/hvmloader/vgt.h	1970-01-01 03:00:00.000000000 +0300
-+++ xen-4.12.0.new/tools/firmware/hvmloader/vgt.h	2019-09-05 18:07:49.750885209 +0300
+diff --git a/tools/firmware/hvmloader/vgt.h b/tools/firmware/hvmloader/vgt.h
+new file mode 100644
+index 0000000..7f4ce7f
+--- /dev/null
++++ b/tools/firmware/hvmloader/vgt.h
 @@ -0,0 +1,24 @@
 +/*
 + * Copyright (c) 2012-2013, Intel Corporation.
