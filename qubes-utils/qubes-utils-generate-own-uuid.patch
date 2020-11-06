@@ -1,0 +1,30 @@
+diff --git a/udev/udev-block-add-change b/udev/udev-block-add-change
+index 9ee4b86..a20ea45 100755
+--- a/udev/udev-block-add-change
++++ b/udev/udev-block-add-change
+@@ -4,8 +4,11 @@ shopt -s nullglob
+ 
+ 
+ export LC_CTYPE=en_US.UTF-8
+-NAME=${DEVNAME#/dev/}
+-DESC="`echo "${ID_MODEL} (${ID_FS_LABEL})" | iconv -f utf8 -t ascii//TRANSLIT`"
++DESC="`echo "${ID_MODEL} (${ID_FS_LABEL} ${DEVNAME})" | iconv -f utf8 -t ascii//TRANSLIT`"
++# prepare own uuid, based on serial and partition numbers
++NAME="`uuidgen -s -n @oid -N "${ID_SERIAL} ${PARTN}" | cut -d"-" -f5`"
++# make a link to the device
++ln -sf ${DEVNAME} /dev/${NAME}
+ SIZE=$[ $(cat /sys/$DEVPATH/size) * 512 ]
+ MODE=w
+ QDB_KEY="/qubes-block-devices/$NAME"
+diff --git a/udev/udev-block-remove b/udev/udev-block-remove
+index 0fc8486..c370497 100755
+--- a/udev/udev-block-remove
++++ b/udev/udev-block-remove
+@@ -1,6 +1,6 @@
+ #!/bin/sh
+ 
+-NAME=${DEVNAME#/dev/}
++NAME="`uuidgen -s -n @oid -N "${ID_SERIAL} ${PARTN}" | cut -d"-" -f5`"
+ QDB_KEY="/qubes-block-devices/$NAME"
+ # Trailing slash is intentional - it will remove the whole directory, instead of
+ # a single base entry

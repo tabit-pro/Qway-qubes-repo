@@ -1,0 +1,24 @@
+diff -pruN qubes-linux-utils-4.1.6/udev/udev-usb-add-change qubes-linux-utils-4.1.6.new/udev/udev-usb-add-change
+--- qubes-linux-utils-4.1.6/udev/udev-usb-add-change	2020-04-01 06:58:21.000000000 +0300
++++ qubes-linux-utils-4.1.6.new/udev/udev-usb-add-change	2020-04-06 15:03:47.839835684 +0300
+@@ -13,7 +13,7 @@
+ [ "$DEVTYPE" != "usb_device" ] && exit 0
+ 
+ # qubesdb doesn't allow dot in key name
+-XSNAME=`basename ${DEVPATH} | tr . _`
++XSNAME="0x${ID_VENDOR_ID}_0x${ID_MODEL_ID}"
+ 
+ # FIXME: For some devices (my Cherry keyboard) ID_SERIAL does not
+ # contain proper human-readable name, should find better method to
+diff -pruN qubes-linux-utils-4.1.6/udev/udev-usb-remove qubes-linux-utils-4.1.6.new/udev/udev-usb-remove
+--- qubes-linux-utils-4.1.6/udev/udev-usb-remove	2020-04-01 06:58:21.000000000 +0300
++++ qubes-linux-utils-4.1.6.new/udev/udev-usb-remove	2020-04-06 15:04:21.591998316 +0300
+@@ -3,7 +3,7 @@
+ # FIXME: Ignore USB hubs.
+ [ "`echo $TYPE | cut -f1 -d/`" = "9" ] && exit 0
+ 
+-NAME=`basename ${DEVPATH} | tr . _`
++NAME="0x${ID_VENDOR_ID}_0x${ID_MODEL_ID}
+ QDB_KEY="/qubes-usb-devices/$NAME/"
+ 
+ qubesdb-rm "$QDB_KEY"
