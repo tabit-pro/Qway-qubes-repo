@@ -12,7 +12,7 @@ If you have a problem with repository features, please let us know through the i
 
 [Compiz window manager on Qubes OS](https://github.com/tabit-pro/tabit-qubes-repo/wiki/Compiz-on-QubesOS)
 
-[Qubes Windows Tools crossbuild project](https://github.com/tabit-pro/qwt-crossbuild)
+[Qubes Windows Tools crossbuild project](https://github.com/tabit-pro/tabit-qubes-repo/wiki/Qubes-Windows-Tools-crossbuild-project)
 
 ## Build packages
 
