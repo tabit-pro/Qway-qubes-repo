@@ -1,0 +1,39 @@
+--- a/qubes-gui-agent-windows-4.0.0/gui-agent/main.c	2019-06-04 14:26:01.937663603 +0000
++++ b/qubes-gui-agent-windows-4.0.0/gui-agent/main.c	2019-06-04 14:25:57.273652852 +0000
+@@ -794,24 +794,25 @@
+     vchanIoInProgress = FALSE;
+     exitLoop = FALSE;
+ 
+-    LogInfo("Awaiting for a vchan client, write buffer size: %d", VchanGetWriteBufferSize(g_Vchan));
++    DWORD bufsize;
++    bufsize = VchanGetWriteBufferSize(g_Vchan);
++    LogInfo("Awaiting for a vchan client, write buffer size: %d", bufsize);
++
++    watchedEvents[0] = g_ShutdownEvent;
++    watchedEvents[1] = windowDamageEvent;
++    watchedEvents[2] = fullScreenOnEvent;
++    watchedEvents[3] = fullScreenOffEvent;
++    watchedEvents[4] = g_ResolutionChangeEvent;
++    watchedEvents[5] = libvchan_fd_for_select(g_Vchan);
++    watchedEvents[6] = CreateEvent(NULL, FALSE, FALSE, NULL); // force update event
++    eventCount = 7;
+ 
+     while (TRUE)
+     {
+-        watchedEvents[0] = g_ShutdownEvent;
+-        watchedEvents[1] = windowDamageEvent;
+-        watchedEvents[2] = fullScreenOnEvent;
+-        watchedEvents[3] = fullScreenOffEvent;
+-        watchedEvents[4] = g_ResolutionChangeEvent;
+-
+         status = ERROR_SUCCESS;
+ 
+         vchanIoInProgress = TRUE;
+ 
+-        watchedEvents[5] = libvchan_fd_for_select(g_Vchan);
+-        watchedEvents[6] = CreateEvent(NULL, FALSE, FALSE, NULL); // force update event
+-        eventCount = 7;
+-
+         // Wait for events.
+         signaledEvent = WaitForMultipleObjects(eventCount, watchedEvents, FALSE, INFINITE);
+         if (signaledEvent >= MAXIMUM_WAIT_OBJECTS)

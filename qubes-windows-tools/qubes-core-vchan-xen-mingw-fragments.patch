@@ -1,0 +1,50 @@
+diff --git a/windows/Makefile b/windows/Makefile
+new file mode 100644
+index 0000000..7609010
+--- /dev/null
++++ b/windows/Makefile
+@@ -0,0 +1,11 @@
++OUTDIR = bin/$(ARCH)
++CFLAGS += -Iinclude
++LDFLAGS += -lxencontrol
++
++all: $(OUTDIR) $(OUTDIR)/libvchan.dll
++
++$(OUTDIR):
++	mkdir -p $@
++
++$(OUTDIR)/libvchan.dll: src/dllmain.c src/io.c src/init.c
++	$(CC) $^ $(CFLAGS) $(LDFLAGS) -lxenvchan -shared -o $@
+diff --git a/windows/src/init.c b/windows/src/init.c
+index 5c37629..8b9c9d8 100644
+--- a/windows/src/init.c
++++ b/windows/src/init.c
+@@ -38,7 +38,7 @@ void libvchan_register_logger(libvchan_logger_t *logger)
+     g_logger = (XENCONTROL_LOGGER*)logger;
+ }
+ 
+-void _Log(XENCONTROL_LOG_LEVEL logLevel, PCHAR function, PWCHAR format, ...) {
++void _Log(XENCONTROL_LOG_LEVEL logLevel, LPCSTR function, PWCHAR format, ...) {
+     va_list args;
+ 
+     if (!g_logger)
+diff --git a/windows/src/libvchan_private.h b/windows/src/libvchan_private.h
+index 335c2cd..01103cb 100644
+--- a/windows/src/libvchan_private.h
++++ b/windows/src/libvchan_private.h
+@@ -35,9 +35,13 @@ struct libvchan {
+     int remote_domain;
+ };
+ 
+-int libvchan__check_domain_alive(HANDLE xc_handle, int dom);
+-void _Log(XENCONTROL_LOG_LEVEL logLevel, PCHAR function, PWCHAR format, ...);
++int libvchan__check_domain_alive(PXENCONTROL_CONTEXT xc_handle, int dom);
++void _Log(XENCONTROL_LOG_LEVEL logLevel, LPCSTR function, PWCHAR format, ...);
+ 
++#ifdef __MINGW32__
++#define Log(level, msg, ...) _Log(level, __FUNCTION__, L"(%p)" L##msg L"\n", ctrl, ##__VA_ARGS__)
++#else
+ #define Log(level, msg, ...) _Log(level, __FUNCTION__, L"(%p)" L##msg L"\n", ctrl, __VA_ARGS__)
++#endif
+ 
+ #endif

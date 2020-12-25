@@ -1,0 +1,1853 @@
+diff -pruN a/include/customddkinc.h b/include/customddkinc.h
+--- a/include/customddkinc.h	1970-01-01 03:00:00.000000000 +0300
++++ b/include/customddkinc.h	2020-01-17 13:31:52.958729291 +0300
+@@ -0,0 +1,72 @@
++#include <devpropdef.h>
++#include <strsafe.h>
++#include <sal.h>
++
++#define __field_bcount_part(size,init) SAL__notnull SAL__byte_writableTo(size) SAL__byte_readableTo(init)
++
++DEFINE_DEVPROPKEY(DEVPKEY_Device_HardwareIds,            0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 3);     // DEVPROP_TYPE_STRING_LIST
++DEFINE_DEVPROPKEY(DEVPKEY_Device_Class,                  0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 9);     // DEVPROP_TYPE_STRING
++DEFINE_DEVPROPKEY(DEVPKEY_Device_LocationInfo,           0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 15);    // DEVPROP_TYPE_STRING
++#define IOCTL_DISK_SET_DISK_ATTRIBUTES      CTL_CODE(IOCTL_DISK_BASE, 0x003d, METHOD_BUFFERED,     FILE_READ_ACCESS | FILE_WRITE_ACCESS)
++
++#define DISK_ATTRIBUTE_OFFLINE              0x0000000000000001
++#define DISK_ATTRIBUTE_READ_ONLY            0x0000000000000002
++
++//
++// IOCTL_DISK_SET_DISK_ATTRIBUTES
++//
++// Input Buffer:
++//     Structure of type SET_DISK_ATTRIBUTES
++//
++// Output Buffer:
++//     None
++//
++
++typedef struct _SET_DISK_ATTRIBUTES {
++
++    //
++    // Specifies the size of the
++    // structure for versioning.
++    //
++    ULONG Version;
++
++    //
++    // Indicates whether to remember
++    // these settings across reboots
++    // or not.
++    //
++    BOOLEAN Persist;
++
++    //
++    // Indicates whether the ownership
++    // taken earlier is being released.
++    //
++    BOOLEAN RelinquishOwnership;
++
++    //
++    // For alignment purposes.
++    //
++    BOOLEAN Reserved1[2];
++
++    //
++    // Specifies the new attributes.
++    //
++    ULONGLONG Attributes;
++
++    //
++    // Specifies the attributes
++    // that are being modified.
++    //
++    ULONGLONG AttributesMask;
++
++    //
++    // Specifies an identifier to be
++    // associated  with  the caller.
++    // This setting is not persisted
++    // across reboots.
++    //
++    GUID Owner;
++
++} SET_DISK_ATTRIBUTES, *PSET_DISK_ATTRIBUTES;
++
++
+diff -pruN a/include/setupapifn.h b/include/setupapifn.h
+--- a/include/setupapifn.h	1970-01-01 03:00:00.000000000 +0300
++++ b/include/setupapifn.h	2020-01-17 13:31:52.958729291 +0300
+@@ -0,0 +1,4 @@
++#define SetupDiGetDeviceProperty __MINGW_NAME_AW(SetupDiGetDeviceProperty)
++
++WINSETUPAPI WINBOOL WINAPI SetupDiGetDevicePropertyW(HDEVINFO DeviceInfoSet,PSP_DEVINFO_DATA DeviceInfoData,const DEVPROPKEY *PropertyKey,DEVPROPTYPE *PropertyType,PBYTE PropertyBuffer,DWORD PropertyBufferSize,PDWORD RequiredSize,DWORD Flags);
++
+diff -pruN a/Makefile b/Makefile
+--- a/Makefile	1970-01-01 03:00:00.000000000 +0300
++++ b/Makefile	2020-01-17 13:31:52.895729144 +0300
+@@ -0,0 +1,57 @@
++OUTDIR = bin/$(ARCH)
++OUTDIR_ANY = bin/AnyCPU
++CFLAGS += -Iinclude -DUNICODE -D_UNICODE -mwindows -D_WIN32_WINNT=0x0600 -std=c11 -fgnu89-inline
++LDFLAGS += -Wl,--as-needed -lqubesdb-client -lwindows-utils -lshlwapi -lwtsapi32 -lwsock32 -liphlpapi -lsetupapi -lole32 -lcomctl32 -lrpcrt4 -luuid -lntdll -Wl,--no-insert-timestamp
++
++#TODO: drop ask-vm-and-run.exe
++TOOLS = $(addprefix $(OUTDIR)/, advertise-tools.exe ask-vm-and-run.exe network-setup.exe prepare-volume.exe qrexec-agent.exe qrexec-client-vm.exe qrexec-wrapper.exe)
++QREXEC_SERVICES = $(addprefix $(OUTDIR)/, clipboard-copy.exe clipboard-paste.exe file-receiver.exe file-sender.exe get-image-rgba.exe open-in-vm.exe open-url.exe set-gui-mode.exe vm-file-editor.exe wait-for-logon.exe window-icon-updater.exe)
++RPC_FILES = $(addprefix $(OUTDIR_ANY)/qubes-rpc/,qubes.ClipboardCopy qubes.ClipboardPaste qubes.Filecopy qubes.GetAppMenus qubes.GetImageRGBA qubes.OpenInVM qubes.OpenURL qubes.SetDateTime qubes.SetGuiMode qubes.StartApp qubes.VMShell qubes.WaitForSession)
++RPC_SCRIPTS = $(addprefix $(OUTDIR_ANY)/, get-appmenus.ps1 set-time.ps1 start-app.ps1)
++
++
++all: $(OUTDIR) $(OUTDIR_ANY) $(OUTDIR_ANY)/qubes-rpc $(TOOLS) $(QREXEC_SERVICES) $(RPC_FILES) $(RPC_SCRIPTS) $(OUTDIR_ANY)/service-policy.exe $(OUTDIR_ANY)/service-policy.cfg $(OUTDIR)/relocate-dir.exe
++
++$(OUTDIR) $(OUTDIR_ANY) $(OUTDIR_ANY)/qubes-rpc:
++	mkdir -p $@
++
++$(addprefix $(OUTDIR)/,qrexec-agent.exe qrexec-client-vm.exe qrexec-wrapper.exe): LDFLAGS+=-lvchan
++$(OUTDIR)/advertise-tools.exe: LDFLAGS+=-lqubesdb-client
++
++$(QREXEC_SERVICES): CFLAGS += -Isrc/qrexec-services/common
++
++
++$(OUTDIR)/file-receiver.exe: src/qrexec-services/common/filecopy.c src/qrexec-services/common/filecopy-error.c
++#$(OUTDIR)/file-receiver.exe: CFLAGS += -DNO_SHLWAPI_STRFCNS
++
++$(OUTDIR)/file-sender.exe: src/qrexec-services/common/filecopy.c src/qrexec-services/common/filecopy-error.c $(OUTDIR)/file-sender.res
++$(OUTDIR)/open-in-vm.exe: src/qrexec-services/common/filecopy.c src/qrexec-services/common/filecopy-error.c
++
++# specific rules
++
++$(OUTDIR)/file-sender.res: src/qrexec-services/file-sender/file-sender.rc
++	$(WINDRES) -i $< -o $@ -O coff
++
++$(OUTDIR_ANY)/service-policy.exe: $(wildcard src/service-policy/*.cs)
++	mcs $^ -r:System.ServiceProcess.dll -out:$@
++
++$(OUTDIR_ANY)/service-policy.cfg: src/service-policy/service-policy.cfg
++	cp $^ $@
++
++$(OUTDIR)/relocate-dir.exe: $(wildcard src/relocate-dir/*.c)
++	$(CC) $^ $(CFLAGS) -I$(DDK_PATH) -e NtProcessStartup -Wl,--subsystem,native -L $(OUTDIR) -lntdll -nostdlib -D__INTRINSIC_DEFINED__InterlockedAdd64 -fstack-check -Wl,--stack,16777216 -mno-stack-arg-probe -municode -Wl,--no-insert-timestamp -o $@
++
++$(RPC_FILES): $(OUTDIR_ANY)/qubes-rpc/%: src/qrexec-services/%
++	cp $^ $@
++	
++$(RPC_SCRIPTS): $(OUTDIR_ANY)/%: src/qrexec-services/%
++	cp $^ $@
++
++# generic rules
++
++.SECONDEXPANSION:
++$(TOOLS): $(OUTDIR)/%.exe: $$(wildcard src/%/*.c)
++	$(CC) $^ $(CFLAGS) $(LDFLAGS) -municode -o $@
++
++$(QREXEC_SERVICES): $(OUTDIR)/%.exe: $$(wildcard src/qrexec-services/%/*.c)
++	$(CC) $^ $(CFLAGS) $(LDFLAGS) -municode -o $@
+diff -pruN a/src/advertise-tools/advertise-tools.c b/src/advertise-tools/advertise-tools.c
+--- a/src/advertise-tools/advertise-tools.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/advertise-tools/advertise-tools.c	2020-01-17 13:31:52.959729293 +0300
+@@ -21,7 +21,7 @@
+ 
+ #include <windows.h>
+ #include <shlwapi.h>
+-#include <Wtsapi32.h>
++#include <wtsapi32.h>
+ 
+ #include <qubesdb-client.h>
+ #include <log.h>
+@@ -42,7 +42,7 @@ BOOL GetCurrentUser(OUT char **userName)
+ 
+     if (!WTSEnumerateSessionsA(WTS_CURRENT_SERVER_HANDLE, 0, 1, &sessionInfo, &sessionCount))
+     {
+-        perror("WTSEnumerateSessionsA");
++        win_perror("WTSEnumerateSessionsA");
+         return FALSE;
+     }
+ 
+@@ -58,7 +58,7 @@ BOOL GetCurrentUser(OUT char **userName)
+                 userName,
+                 &cbUserName))
+             {
+-                perror("WTSQuerySessionInformationA");
++                win_perror("WTSQuerySessionInformationA");
+                 goto cleanup;
+             }
+             LogDebug("Found session: %S\n", *userName);
+@@ -79,7 +79,7 @@ BOOL PrepareExePath(OUT WCHAR *fullPath,
+ {
+     if (ERROR_SUCCESS != CfgReadString(NULL, L"InstallDir", fullPath, MAX_PATH, NULL))
+     {
+-        perror("CfgReadString(InstallDir)");
++        win_perror("CfgReadString(InstallDir)");
+         return FALSE;
+     }
+ 
+@@ -87,12 +87,12 @@ BOOL PrepareExePath(OUT WCHAR *fullPath,
+ 
+     if (!PathAppend(fullPath, L"bin"))
+     {
+-        perror("PathAppend(bin)");
++        win_perror("PathAppend(bin)");
+         return FALSE;
+     }
+     if (!PathAppend(fullPath, exeName))
+     {
+-        perror("PathAppend(exe)");
++        win_perror("PathAppend(exe)");
+         return FALSE;
+     }
+ 
+@@ -141,7 +141,7 @@ BOOL NotifyDom0(void)
+         &si,
+         &pi))
+     {
+-        perror("CreateProcess(qrexec-client-vm.exe)");
++        win_perror("CreateProcess(qrexec-client-vm.exe)");
+         return FALSE;
+     }
+ 
+@@ -178,7 +178,7 @@ int wmain(int argc, WCHAR *argv[])
+     qdb = qdb_open(NULL);
+     if (!qdb)
+     {
+-        perror("qdb_open");
++        win_perror("qdb_open");
+         goto cleanup;
+     }
+ 
+@@ -204,37 +204,37 @@ int wmain(int argc, WCHAR *argv[])
+     /* for now mostly hardcoded values, but this can change in the future */
+     if (!QdbWrite(qdb, QDB_PATH_PREFIX "version", "1"))
+     {
+-        perror("write 'version' entry");
++        win_perror("write 'version' entry");
+         goto cleanup;
+     }
+ 
+     if (!QdbWrite(qdb, QDB_PATH_PREFIX "os", "Windows"))
+     {
+-        perror("write 'os' entry");
++        win_perror("write 'os' entry");
+         goto cleanup;
+     }
+ 
+     if (!QdbWrite(qdb, QDB_PATH_PREFIX "qrexec", qrexecAgentPresent ? "1" : "0"))
+     {
+-        perror("write 'qrexec' entry");
++        win_perror("write 'qrexec' entry");
+         goto cleanup;
+     }
+ 
+     if (!QdbWrite(qdb, QDB_PATH_PREFIX "gui", guiAgentPresent ? "1" : "0"))
+     {
+-        perror("write 'gui' entry");
++        win_perror("write 'gui' entry");
+         goto cleanup;
+     }
+ 
+     if (!QdbWrite(qdb, QDB_PATH_PREFIX "gui-emulated", guiAgentPresent ? "0" : "1"))
+     {
+-        perror("write 'gui-emulated' entry");
++        win_perror("write 'gui-emulated' entry");
+         goto cleanup;
+     }
+ 
+     if (!QdbWrite(qdb, QDB_PATH_PREFIX "default-user", userName))
+     {
+-        perror("write 'default-user' entry");
++        win_perror("write 'default-user' entry");
+         goto cleanup;
+     }
+ 
+diff -pruN a/src/ask-vm-and-run/ask-vm-and-run.c b/src/ask-vm-and-run/ask-vm-and-run.c
+--- a/src/ask-vm-and-run/ask-vm-and-run.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/ask-vm-and-run/ask-vm-and-run.c	2020-01-17 13:31:52.959729293 +0300
+@@ -20,7 +20,7 @@
+  */
+ 
+ #include <windows.h>
+-#include <Shlwapi.h>
++#include <shlwapi.h>
+ #include <strsafe.h>
+ #include <stdlib.h>
+ #include "resource.h"
+@@ -87,7 +87,7 @@ int APIENTRY wWinMain(HINSTANCE instance
+     // build qrexec-client-vm path, first get our own
+     if (!GetModuleFileName(NULL, qrexecClientPath, RTL_NUMBER_OF(qrexecClientPath)))
+     {
+-        status = perror("GetModuleFileName");
++        status = win_perror("GetModuleFileName");
+         ReportError(L"Failed to get " QREXEC_CLIENT_VM L" path");
+         return status;
+     }
+@@ -130,7 +130,7 @@ int APIENTRY wWinMain(HINSTANCE instance
+ 
+     if (!CreateProcess(qrexecClientPath, qrexecClientCmdLine, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
+     {
+-        status = perror("CreateProcess");
++        status = win_perror("CreateProcess");
+         ReportError(L"Failed to execute qrexec-client-vm.exe");
+         return status;
+     }
+diff -pruN a/src/network-setup/qubes-network-setup.c b/src/network-setup/qubes-network-setup.c
+--- a/src/network-setup/qubes-network-setup.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/network-setup/qubes-network-setup.c	2020-01-17 13:31:52.959729293 +0300
+@@ -72,14 +72,14 @@ DWORD SetNetworkParameters(IN DWORD ip,
+ 
+     if (status != ERROR_BUFFER_OVERFLOW)
+     {
+-        perror2(status, "GetAdaptersInfo");
++        win_perror2(status, "GetAdaptersInfo");
+         goto cleanup;
+     }
+     adapterInfo = (IP_ADAPTER_INFO *) malloc(cbAdaptersInfo);
+ 
+     if ((status = GetAdaptersInfo(adapterInfo, &cbAdaptersInfo)) != ERROR_SUCCESS)
+     {
+-        perror2(status, "GetAdaptersInfo 2");
++        win_perror2(status, "GetAdaptersInfo 2");
+         goto cleanup;
+     }
+ 
+@@ -107,7 +107,7 @@ DWORD SetNetworkParameters(IN DWORD ip,
+                     status = DeleteIPAddress(addrCurrent->Context);
+                     if (status != ERROR_SUCCESS)
+                     {
+-                        perror2(status, "DeleteIPAddress");
++                        win_perror2(status, "DeleteIPAddress");
+                         goto cleanup;
+                     }
+                     addrCurrent = addrCurrent->Next;
+@@ -117,7 +117,7 @@ DWORD SetNetworkParameters(IN DWORD ip,
+                 status = AddIPAddress(ip, netmask, adapterInfoCurrent->Index, &nteContext, &nteInstance);
+                 if (status != ERROR_SUCCESS)
+                 {
+-                    perror2(status, "AddIPAddress");
++                    win_perror2(status, "AddIPAddress");
+                     goto cleanup;
+                 }
+ 
+@@ -147,7 +147,7 @@ DWORD SetNetworkParameters(IN DWORD ip,
+ 
+     if (status != ERROR_SUCCESS)
+     {
+-        perror2(status, "GetIpForwardTable");
++        win_perror2(status, "GetIpForwardTable");
+         goto cleanup;
+     }
+ 
+@@ -164,7 +164,7 @@ DWORD SetNetworkParameters(IN DWORD ip,
+ 
+             if (status != ERROR_SUCCESS)
+             {
+-                perror2(status, "DeleteIpForwardEntry");
++                win_perror2(status, "DeleteIpForwardEntry");
+                 goto cleanup;
+             }
+         }
+@@ -176,7 +176,7 @@ DWORD SetNetworkParameters(IN DWORD ip,
+     status = GetIpInterfaceEntry(&ipInterfaceRow);
+     if (status != NO_ERROR)
+     {
+-        perror2(status, "GetIpInterfaceEntry");
++        win_perror2(status, "GetIpInterfaceEntry");
+         goto cleanup;
+     }
+ 
+@@ -190,7 +190,7 @@ DWORD SetNetworkParameters(IN DWORD ip,
+     status = CreateIpForwardEntry(&ipForwardRow);
+ 
+     if (status != NO_ERROR)
+-        perror2(status, "CreateIpForwardEntry");
++        win_perror2(status, "CreateIpForwardEntry");
+ 
+     status = ERROR_SUCCESS;
+ 
+@@ -248,7 +248,7 @@ DWORD WINAPI SetupNetwork(PVOID param)
+     qdb = qdb_open(NULL);
+     if (!qdb)
+     {
+-        perror("qdb_open");
++        win_perror("qdb_open");
+         goto cleanup;
+     }
+ 
+diff -pruN a/src/prepare-volume/device.c b/src/prepare-volume/device.c
+--- a/src/prepare-volume/device.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/prepare-volume/device.c	2020-01-17 13:31:52.959729293 +0300
+@@ -22,11 +22,18 @@
+ #include "device.h"
+ #include "disk.h"
+ 
+-#include <SetupAPI.h>
++#include <setupapi.h>
+ #include <cfgmgr32.h>
+ #include <rpc.h>
+ #include <devpkey.h>
+ 
++#ifdef __MINGW32__
++#include "customddkinc.h"
++#include "setupapifn.h"
++#endif
++
++#include <strsafe.h>
++
+ // Convert backend device ID to Windows' disk target id.
+ // See __ParseVbd() in xenvbd/fdo.c in the new pvdrivers.
+ static ULONG BackendIdToTargetId(ULONG backendId)
+@@ -115,7 +122,7 @@ BOOL GetPrivateImgDriveNumber(IN ULONG x
+ 
+     if (deviceInfoSet == INVALID_HANDLE_VALUE)
+     {
+-        perror("SetupDiGetClassDevs");
++        win_perror("SetupDiGetClassDevs");
+         return FALSE;
+     }
+ 
+@@ -126,7 +133,7 @@ BOOL GetPrivateImgDriveNumber(IN ULONG x
+     {
+         if (!SetupDiGetDeviceInstanceId(deviceInfoSet, &deviceInfoData, deviceId, RTL_NUMBER_OF(deviceId), &returnedSize))
+         {
+-            perror("SetupDiGetDeviceInstanceId");
++            win_perror("SetupDiGetDeviceInstanceId");
+             continue;
+         }
+ 
+@@ -137,7 +144,7 @@ BOOL GetPrivateImgDriveNumber(IN ULONG x
+         if (!SetupDiGetDeviceProperty(deviceInfoSet, &deviceInfoData, &DEVPKEY_Device_LocationInfo, &devPropType,
+             (BYTE *)locationString, sizeof(locationString), &returnedSize, 0))
+         {
+-            perror("SetupDiGetDeviceProperty(location)");
++            win_perror("SetupDiGetDeviceProperty(location)");
+             continue;
+         }
+ 
+diff -pruN a/src/prepare-volume/disk.c b/src/prepare-volume/disk.c
+--- a/src/prepare-volume/disk.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/prepare-volume/disk.c	2020-01-17 13:31:52.960729296 +0300
+@@ -22,8 +22,12 @@
+ #include "disk.h"
+ #include "format.h"
+ #include "wait-for-volume.h"
++#ifdef __MINGW32__
++#include "customddkinc.h"
++#endif
+ 
+ #include <stdlib.h>
++#include <strsafe.h>
+ 
+ // without braces
+ PWCHAR DISK_CLASS_GUID = L"4d36e967-e325-11ce-bfc1-08002be10318";
+@@ -38,14 +42,14 @@ BOOL GetPhysicalDriveNumber(IN WCHAR *de
+ 
+     if (device == INVALID_HANDLE_VALUE)
+     {
+-        perror("CreateFile");
++        win_perror("CreateFile");
+         goto cleanup;
+     }
+ 
+     // Get device number.
+     if (!DeviceIoControl(device, IOCTL_STORAGE_GET_DEVICE_NUMBER, NULL, 0, &deviceNumber, sizeof(deviceNumber), &returnedSize, NULL))
+     {
+-        perror("IOCTL_STORAGE_GET_DEVICE_NUMBER");
++        win_perror("IOCTL_STORAGE_GET_DEVICE_NUMBER");
+         goto cleanup;
+     }
+ 
+@@ -87,7 +91,7 @@ static BOOL VolumeNameToDiskLetter(IN WC
+     ZeroMemory(mountPoints, returned*sizeof(WCHAR));
+     if (!GetVolumePathNamesForVolumeName(volumeName, mountPoints, returned, &returned))
+     {
+-        perror("GetVolumePathNamesForVolumeName");
++        win_perror("GetVolumePathNamesForVolumeName");
+         free(mountPoints);
+         return FALSE;
+     }
+@@ -121,7 +125,7 @@ BOOL DriveNumberToVolumeName(IN DWORD dr
+     findHandle = FindFirstVolume(volumeName, volumeNameLength);
+     if (findHandle == INVALID_HANDLE_VALUE)
+     {
+-        perror("FindFirstVolume");
++        win_perror("FindFirstVolume");
+         return FALSE;
+     }
+ 
+@@ -134,14 +138,14 @@ BOOL DriveNumberToVolumeName(IN DWORD dr
+         volume = CreateFile(volumeName, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+         if (volume == INVALID_HANDLE_VALUE)
+         {
+-            perror("open volume");
++            win_perror("open volume");
+             goto skip;
+         }
+ 
+         // Get volume disk extents.
+         if (!DeviceIoControl(volume, IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, NULL, 0, &extents, sizeof(extents), &returnedSize, NULL))
+         {
+-            perror("IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS");
++            win_perror("IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS");
+             goto skip;
+         }
+ 
+@@ -205,14 +209,14 @@ static BOOL InitializeDisk(IN HANDLE dev
+ 
+     if (!DeviceIoControl(device, IOCTL_DISK_SET_DISK_ATTRIBUTES, &diskAttrs, sizeof(diskAttrs), NULL, 0, &requiredSize, NULL))
+     {
+-        perror("IOCTL_DISK_SET_DISK_ATTRIBUTES");
++        win_perror("IOCTL_DISK_SET_DISK_ATTRIBUTES");
+         return FALSE;
+     }
+ 
+     // Tell the system that the disk was changed.
+     if (!DeviceIoControl(device, IOCTL_DISK_UPDATE_PROPERTIES, NULL, 0, NULL, 0, &requiredSize, NULL))
+     {
+-        perror("IOCTL_DISK_UPDATE_PROPERTIES");
++        win_perror("IOCTL_DISK_UPDATE_PROPERTIES");
+         return FALSE;
+     }
+ 
+@@ -226,7 +230,7 @@ static BOOL InitializeDisk(IN HANDLE dev
+ 
+     if (!DeviceIoControl(device, IOCTL_DISK_CREATE_DISK, &createDisk, sizeof(createDisk), NULL, 0, &requiredSize, NULL))
+     {
+-        perror("IOCTL_DISK_CREATE_DISK");
++        win_perror("IOCTL_DISK_CREATE_DISK");
+         return FALSE;
+     }
+ 
+@@ -234,7 +238,7 @@ static BOOL InitializeDisk(IN HANDLE dev
+ 
+     if (!DeviceIoControl(device, IOCTL_DISK_UPDATE_PROPERTIES, NULL, 0, NULL, 0, &requiredSize, NULL))
+     {
+-        perror("IOCTL_DISK_UPDATE_PROPERTIES");
++        win_perror("IOCTL_DISK_UPDATE_PROPERTIES");
+         return FALSE;
+     }
+ 
+@@ -270,13 +274,13 @@ static BOOL InitializeDisk(IN HANDLE dev
+ 
+     if (!DeviceIoControl(device, IOCTL_DISK_SET_DRIVE_LAYOUT_EX, partitionBuffer, sizeof(partitionBuffer), NULL, 0, &requiredSize, NULL))
+     {
+-        perror("IOCTL_DISK_SET_DRIVE_LAYOUT_EX");
++        win_perror("IOCTL_DISK_SET_DRIVE_LAYOUT_EX");
+         return FALSE;
+     }
+ 
+     if (!DeviceIoControl(device, IOCTL_DISK_UPDATE_PROPERTIES, NULL, 0, NULL, 0, &requiredSize, NULL))
+     {
+-        perror("IOCTL_DISK_UPDATE_PROPERTIES");
++        win_perror("IOCTL_DISK_UPDATE_PROPERTIES");
+         return FALSE;
+     }
+ 
+@@ -315,14 +319,14 @@ BOOL PreparePrivateVolume(IN ULONG drive
+     device = CreateFile(driveName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+     if (device == INVALID_HANDLE_VALUE)
+     {
+-        perror("CreateFile");
++        win_perror("CreateFile");
+         return FALSE;
+     }
+ 
+     // Get partition information.
+     if (!DeviceIoControl(device, IOCTL_DISK_GET_DRIVE_LAYOUT_EX, NULL, 0, buf, sizeof(buf), &returnedSize, NULL))
+     {
+-        perror("IOCTL_DISK_GET_DRIVE_LAYOUT_EX");
++        win_perror("IOCTL_DISK_GET_DRIVE_LAYOUT_EX");
+         goto cleanup;
+     }
+ 
+@@ -355,7 +359,7 @@ BOOL PreparePrivateVolume(IN ULONG drive
+                 // Check the filesystem.
+                 if (!GetVolumeInformation(volumeName, NULL, 0, NULL, NULL, NULL, filesystemName, RTL_NUMBER_OF(filesystemName)))
+                 {
+-                    perror("GetVolumeInformation");
++                    win_perror("GetVolumeInformation");
+                     reinitialize = TRUE;
+                 }
+                 else
+@@ -394,7 +398,7 @@ BOOL PreparePrivateVolume(IN ULONG drive
+         // Get disk size.
+         if (!DeviceIoControl(device, IOCTL_DISK_GET_LENGTH_INFO, NULL, 0, &lengthInfo, sizeof(lengthInfo), &returnedSize, NULL))
+         {
+-            perror("IOCTL_DISK_GET_LENGTH_INFO");
++            win_perror("IOCTL_DISK_GET_LENGTH_INFO");
+             goto cleanup;
+         }
+ 
+diff -pruN a/src/prepare-volume/format.c b/src/prepare-volume/format.c
+--- a/src/prepare-volume/format.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/prepare-volume/format.c	2020-01-17 13:31:52.960729296 +0300
+@@ -120,7 +120,7 @@ BOOL FormatVolume(IN DWORD diskNumber)
+             g_fmifsDll = LoadLibrary(L"fmifs");
+             if (!g_fmifsDll)
+             {
+-                perror("LoadLibrary(fmifs)");
++                win_perror("LoadLibrary(fmifs)");
+                 return FALSE;
+             }
+         }
+@@ -130,7 +130,7 @@ BOOL FormatVolume(IN DWORD diskNumber)
+             g_FormatEx = (FormatEx_t) GetProcAddress(g_fmifsDll, "FormatEx");
+             if (!g_FormatEx)
+             {
+-                perror("GetProcAddress(fmifs, FormatEx)");
++                win_perror("GetProcAddress(fmifs, FormatEx)");
+                 return FALSE;
+             }
+         }
+diff -pruN a/src/prepare-volume/prepare-volume.c b/src/prepare-volume/prepare-volume.c
+--- a/src/prepare-volume/prepare-volume.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/prepare-volume/prepare-volume.c	2020-01-17 13:31:52.960729296 +0300
+@@ -23,11 +23,12 @@
+ 
+ #include "prepare-volume.h"
+ #include <shellapi.h>
+-#include <Shlwapi.h>
+-#include <ShlObj.h>
+-#include <Knownfolders.h>
++#include <shlobj.h>
++#include <shlwapi.h>
++#include <knownfolders.h>
+ #include <aclapi.h>
+ #include <stdlib.h>
++#include <strsafe.h>
+ 
+ #include "device.h"
+ #include "disk.h"
+@@ -44,7 +45,7 @@ DWORD EnablePrivilege(HANDLE token, cons
+     LUID luid;
+ 
+     if (!LookupPrivilegeValue(NULL, privilegeName, &luid))
+-        return perror("LookupPrivilegeValue");
++        return win_perror("LookupPrivilegeValue");
+ 
+     tp.PrivilegeCount = 1;
+     tp.Privileges[0].Luid = luid;
+@@ -57,7 +58,7 @@ DWORD EnablePrivilege(HANDLE token, cons
+         sizeof(TOKEN_PRIVILEGES),
+         (PTOKEN_PRIVILEGES) NULL,
+         (PDWORD) NULL))
+-        return perror("AdjustTokenPrivileges");
++        return win_perror("AdjustTokenPrivileges");
+ 
+     if (GetLastError() == ERROR_NOT_ALL_ASSIGNED)
+     {
+@@ -132,7 +133,7 @@ int wmain(int argc, WCHAR *argv[])
+     // Check if profiles directory is already a junction point to the private volume.
+     if (S_OK != SHGetKnownFolderPath(&FOLDERID_UserProfiles, 0, NULL, &usersPath))
+     {
+-        perror("SHGetKnownFolderPath(FOLDERID_UserProfiles)");
++        win_perror("SHGetKnownFolderPath(FOLDERID_UserProfiles)");
+         return 1;
+     }
+ 
+@@ -153,7 +154,7 @@ int wmain(int argc, WCHAR *argv[])
+     status = CfgReadString(NULL, LOG_CONFIG_PATH_VALUE, logPath, MAX_PATH_LONG, NULL);
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "Reading log path from registry");
++        win_perror2(status, "Reading log path from registry");
+         return 1;
+     }
+ 
+@@ -164,7 +165,7 @@ int wmain(int argc, WCHAR *argv[])
+     status = RegOpenKeyEx(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\Session Manager", 0, KEY_READ | KEY_WRITE, &key);
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "Opening Session Manager registry key");
++        win_perror2(status, "Opening Session Manager registry key");
+         return 1;
+     }
+ 
+@@ -172,7 +173,7 @@ int wmain(int argc, WCHAR *argv[])
+     status = RegQueryValueEx(key, L"BootExecute", NULL, &valueType, (PBYTE)valueData, &size);
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "Reading BootExecute entry");
++        win_perror2(status, "Reading BootExecute entry");
+         return 1;
+     }
+ 
+@@ -217,7 +218,7 @@ int wmain(int argc, WCHAR *argv[])
+     status = RegSetValueEx(key, L"BootExecute", 0, REG_MULTI_SZ, (PBYTE)valueData, MultiWStrSize(valueData, NULL));
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "RegSetValueEx");
++        win_perror2(status, "RegSetValueEx");
+         return 1;
+     }
+ 
+diff -pruN a/src/prepare-volume/prepare-volume.h b/src/prepare-volume/prepare-volume.h
+--- a/src/prepare-volume/prepare-volume.h	2019-06-20 03:55:59.000000000 +0300
++++ b/src/prepare-volume/prepare-volume.h	2020-01-17 13:31:52.960729296 +0300
+@@ -22,8 +22,7 @@
+ #pragma once
+ 
+ #define INITGUID
+-#include <Windows.h>
++#include <windows.h>
+ #include <stdlib.h>
+-#include <strsafe.h>
+ 
+ #include "log.h"
+diff -pruN a/src/prepare-volume/wait-for-volume.c b/src/prepare-volume/wait-for-volume.c
+--- a/src/prepare-volume/wait-for-volume.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/prepare-volume/wait-for-volume.c	2020-01-17 13:31:52.961729298 +0300
+@@ -38,7 +38,7 @@ static void MessagePump(void)
+     {
+         if (retval == -1)
+         {
+-            perror("GetMessage");
++            win_perror("GetMessage");
+             break;
+         }
+         else
+@@ -70,7 +70,7 @@ static BOOL DoRegisterDeviceInterface(
+ 
+     if (NULL == *deviceNotify)
+     {
+-        perror("RegisterDeviceNotification");
++        win_perror("RegisterDeviceNotification");
+         return FALSE;
+     }
+ 
+@@ -97,7 +97,7 @@ static INT_PTR WINAPI DevNotifyWndProc(
+             hWnd,
+             &hDeviceNotify))
+         {
+-            perror("DoRegisterDeviceInterfaceToHwnd");
++            win_perror("DoRegisterDeviceInterfaceToHwnd");
+             ExitThread(1);
+         }
+ 
+@@ -139,7 +139,7 @@ static INT_PTR WINAPI DevNotifyWndProc(
+     case WM_CLOSE:
+         if (!UnregisterDeviceNotification(hDeviceNotify))
+         {
+-            perror("UnregisterDeviceNotification");
++            win_perror("UnregisterDeviceNotification");
+         }
+         DestroyWindow(hWnd);
+         break;
+@@ -173,7 +173,7 @@ static BOOL InitWindowClass(void)
+ 
+     if (!RegisterClassEx(&wndClass))
+     {
+-        perror("RegisterClassEx");
++        win_perror("RegisterClassEx");
+         return FALSE;
+     }
+ 
+@@ -204,7 +204,7 @@ static DWORD WINAPI DevNotifyThread(void
+ 
+     if (hWnd == NULL)
+     {
+-        perror("CreateWindowEx: main appwindow hWnd");
++        win_perror("CreateWindowEx: main appwindow hWnd");
+         return 2;
+     }
+ 
+@@ -234,7 +234,7 @@ WCHAR WaitForVolumeArrival(void)
+     notifyThread = CreateThread(NULL, 0, DevNotifyThread, &diskLetter, 0, NULL);
+     if (!notifyThread)
+     {
+-        perror("CreateThread");
++        win_perror("CreateThread");
+         return 0;
+     }
+ 
+@@ -250,7 +250,7 @@ WCHAR WaitForVolumeArrival(void)
+     // Check thread's exit code.
+     if (!GetExitCodeThread(notifyThread, &exitCode))
+     {
+-        perror("GetExitCodeThread");
++        win_perror("GetExitCodeThread");
+         return 0;
+     }
+ 
+diff -pruN a/src/qrexec-agent/qrexec-agent.c b/src/qrexec-agent/qrexec-agent.c
+--- a/src/qrexec-agent/qrexec-agent.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-agent/qrexec-agent.c	2020-01-17 13:31:52.961729298 +0300
+@@ -22,10 +22,10 @@
+ #include <windows.h>
+ #include <stdlib.h>
+ #include <lmcons.h>
+-#include <strsafe.h>
+-#include <Shlwapi.h>
++#include <shlwapi.h>
+ #include <assert.h>
+ #include <crtdbg.h>
++#include <strsafe.h>
+ 
+ #include "qrexec-agent.h"
+ 
+@@ -191,7 +191,7 @@ static DWORD Utf8WithBomToUtf16(IN const
+         hresult = StringCbCopyW(bufferUtf16, cbStringUtf8 - cbSkipChars + sizeof(WCHAR), (STRSAFE_LPCWSTR)(stringUtf8 + cbSkipChars));
+         if (FAILED(hresult))
+         {
+-            perror2(hresult, "StringCbCopyW");
++            win_perror2(hresult, "StringCbCopyW");
+             free(bufferUtf16);
+             return hresult;
+         }
+@@ -215,7 +215,7 @@ static DWORD Utf8WithBomToUtf16(IN const
+     status = ConvertUTF8ToUTF16(stringUtf8 + cbSkipChars, stringUtf16, NULL);
+     if (ERROR_SUCCESS != status)
+     {
+-        return perror2(status, "ConvertUTF8ToUTF16");
++        return win_perror2(status, "ConvertUTF8ToUTF16");
+     }
+ 
+     LogVerbose("success");
+@@ -309,7 +309,7 @@ static DWORD ParseUtf8Command(IN const c
+     status = ConvertUTF8ToUTF16(commandUtf8, commandUtf16, NULL);
+     if (ERROR_SUCCESS != status)
+     {
+-        return perror2(status, "ConvertUTF8ToUTF16");
++        return win_perror2(status, "ConvertUTF8ToUTF16");
+     }
+ 
+     LogInfo("Command: %s", *commandUtf16);
+@@ -396,7 +396,7 @@ static DWORD InterceptRPCRequest(IN OUT
+             *sourceDomainName = _wcsdup(separator);
+             if (*sourceDomainName == NULL)
+             {
+-                return perror2(ERROR_NOT_ENOUGH_MEMORY, "_wcsdup");
++                return win_perror2(ERROR_NOT_ENOUGH_MEMORY, "_wcsdup");
+             }
+             LogDebug("source domain: '%s'", *sourceDomainName);
+         }
+@@ -415,7 +415,7 @@ static DWORD InterceptRPCRequest(IN OUT
+         {
+             status = GetLastError();
+             free(*sourceDomainName);
+-            return perror2(status, "GetModuleFileName");
++            return win_perror2(status, "GetModuleFileName");
+         }
+         // cut off file name (qrexec_agent.exe)
+         separator = wcsrchr(serviceFilePath, L'\\');
+@@ -490,7 +490,7 @@ static DWORD InterceptRPCRequest(IN OUT
+ 
+         if (serviceConfigFile == INVALID_HANDLE_VALUE)
+         {
+-            status = perror("CreateFile");
++            status = win_perror("CreateFile");
+             free(*sourceDomainName);
+             LogError("Failed to open service '%s' configuration file (%s)", serviceName, serviceFilePath);
+             return status;
+@@ -501,7 +501,7 @@ static DWORD InterceptRPCRequest(IN OUT
+ 
+         if (!ReadFile(serviceConfigFile, serviceConfigContents, sizeof(WCHAR) * MAX_PATH, &cbRead, NULL))
+         {
+-            status = perror("ReadFile");
++            status = win_perror("ReadFile");
+             free(*sourceDomainName);
+             LogError("Failed to read RPC %s configuration file (%s)", serviceName, serviceFilePath);
+             CloseHandle(serviceConfigFile);
+@@ -512,7 +512,7 @@ static DWORD InterceptRPCRequest(IN OUT
+         status = Utf8WithBomToUtf16(serviceConfigContents, cbRead, &rawServiceFilePath);
+         if (status != ERROR_SUCCESS)
+         {
+-            perror2(status, "TextBOMToUTF16");
++            win_perror2(status, "TextBOMToUTF16");
+             free(*sourceDomainName);
+             LogError("Failed to parse the encoding in RPC '%s' configuration file (%s)", serviceName, serviceFilePath);
+             return status;
+@@ -559,7 +559,7 @@ static DWORD InterceptRPCRequest(IN OUT
+         if (*serviceCommandLine == NULL)
+         {
+             free(*sourceDomainName);
+-            return perror2(ERROR_NOT_ENOUGH_MEMORY, "malloc");
++            return win_perror2(ERROR_NOT_ENOUGH_MEMORY, "malloc");
+         }
+         LogDebug("RPC %s: %s\n", serviceName, *serviceCommandLine);
+     }
+@@ -738,7 +738,7 @@ DWORD HandleServiceConnect(IN const stru
+     // TODO: should all service handlers run as current user (SYSTEM)?
+     status = StartChild(params->connect_domain, params->connect_port, NULL, context->CommandLine, TRUE, TRUE, TRUE);
+     if (ERROR_SUCCESS != status)
+-        perror("StartChild");
++        win_perror("StartChild");
+ 
+     EnterCriticalSection(&g_RequestCriticalSection);
+     RemoveEntryList(&context->ListEntry);
+@@ -947,7 +947,7 @@ static DWORD HandleDaemonMessage(void)
+     LogVerbose("start");
+ 
+     if (!VchanReceiveBuffer(g_DaemonVchan, &header, sizeof header, L"daemon header"))
+-        return perror2(ERROR_INVALID_FUNCTION, "VchanReceiveBuffer");
++        return win_perror2(ERROR_INVALID_FUNCTION, "VchanReceiveBuffer");
+ 
+     switch (header.type)
+     {
+@@ -991,14 +991,14 @@ static DWORD WatchForEvents(HANDLE stopE
+ 
+     // Don't do anything before qdb is available, otherwise advertise-tools may fail.
+     if (!WaitForQdb())
+-        return perror2(ERROR_INVALID_FUNCTION, "WaitForQdb");
++        return win_perror2(ERROR_INVALID_FUNCTION, "WaitForQdb");
+ 
+     // We give a 5 minute timeout here because xeniface can take some time
+     // to load the first time after reboot after pvdrivers installation.
+     g_DaemonVchan = VchanInitServer(0, VCHAN_BASE_PORT, VCHAN_BUFFER_SIZE, 5 * 60 * 1000);
+ 
+     if (!g_DaemonVchan)
+-        return perror2(ERROR_INVALID_FUNCTION, "VchanInitServer");
++        return win_perror2(ERROR_INVALID_FUNCTION, "VchanInitServer");
+ 
+     LogDebug("port %d: daemon vchan = %p", VCHAN_BASE_PORT, g_DaemonVchan);
+     LogInfo("Waiting for qrexec daemon connection, write buffer size: %d", VchanGetWriteBufferSize(g_DaemonVchan));
+@@ -1027,7 +1027,7 @@ static DWORD WatchForEvents(HANDLE stopE
+ 
+         if (signaledEvent != 1)
+         {
+-            status = perror("WaitForMultipleObjects");
++            status = win_perror("WaitForMultipleObjects");
+             break;
+         }
+ 
+@@ -1055,7 +1055,7 @@ static DWORD WatchForEvents(HANDLE stopE
+             }
+             else
+             {
+-                perror("Failed to create advertise-tools process");
++                win_perror("Failed to create advertise-tools process");
+                 // this is non-fatal?
+             }
+             continue;
+@@ -1075,7 +1075,7 @@ static DWORD WatchForEvents(HANDLE stopE
+             if (ERROR_SUCCESS != status)
+             {
+                 run = FALSE;
+-                perror2(status, "HandleDaemonMessage");
++                win_perror2(status, "HandleDaemonMessage");
+                 goto out;
+             }
+         }
+@@ -1134,7 +1134,7 @@ DWORD WINAPI PipeClientThread(PVOID para
+     status = QpsRead(g_PipeServer, clientId, &context->ServiceParams, sizeof(context->ServiceParams));
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "QpsRead(params)");
++        win_perror2(status, "QpsRead(params)");
+         goto cleanup;
+     }
+ 
+@@ -1142,7 +1142,7 @@ DWORD WINAPI PipeClientThread(PVOID para
+     status = QpsRead(g_PipeServer, clientId, &commandSize, sizeof(commandSize));
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "QpsRead(cmd size)");
++        win_perror2(status, "QpsRead(cmd size)");
+         goto cleanup;
+     }
+ 
+@@ -1156,7 +1156,7 @@ DWORD WINAPI PipeClientThread(PVOID para
+     status = QpsRead(g_PipeServer, clientId, context->CommandLine, (DWORD)commandSize);
+     if (ERROR_SUCCESS != status)
+     {
+-        return perror2(status, "QpsRead(cmd)");
++        return win_perror2(status, "QpsRead(cmd)");
+         goto cleanup;
+     }
+ 
+@@ -1204,7 +1204,7 @@ void ClientConnectedCallback(PIPE_SERVER
+     clientThread = CreateThread(NULL, 0, PipeClientThread, (PVOID)id, 0, NULL);
+     if (!clientThread)
+     {
+-        perror("create client thread");
++        win_perror("create client thread");
+         return;
+     }
+     CloseHandle(clientThread);
+@@ -1242,7 +1242,7 @@ DWORD WINAPI ServiceExecutionThread(void
+ 
+     status = CreatePublicPipeSecurityDescriptor(&sd, &acl);
+     if (status != ERROR_SUCCESS)
+-        return perror("create pipe security descriptor");
++        return win_perror("create pipe security descriptor");
+ 
+     sa.nLength = sizeof(sa);
+     sa.bInheritHandle = FALSE;
+@@ -1260,7 +1260,7 @@ DWORD WINAPI ServiceExecutionThread(void
+                        &g_PipeServer);
+ 
+     if (ERROR_SUCCESS != status)
+-        perror2(status, "create pipe server");
++        win_perror2(status, "create pipe server");
+ 
+     LogVerbose("pipe server: %p", g_PipeServer);
+ 
+@@ -1268,14 +1268,14 @@ DWORD WINAPI ServiceExecutionThread(void
+     if (!pipeServerThread)
+     {
+         status = GetLastError();
+-        return perror2(status, "create pipe server thread");
++        return win_perror2(status, "create pipe server thread");
+     }
+ 
+     LogVerbose("pipe thread: %p, entering loop", pipeServerThread);
+ 
+     status = WatchForEvents(ctx->StopEvent);
+     if (ERROR_SUCCESS != status)
+-        perror2(status, "WatchForEvents");
++        win_perror2(status, "WatchForEvents");
+ 
+ // FIXME: pipe server doesn't have the ability for graceful stop
+ 
+diff -pruN a/src/qrexec-client-vm/qrexec-client-vm.c b/src/qrexec-client-vm/qrexec-client-vm.c
+--- a/src/qrexec-client-vm/qrexec-client-vm.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-client-vm/qrexec-client-vm.c	2020-01-17 13:31:52.961729298 +0300
+@@ -62,22 +62,22 @@ int __cdecl wmain(int argc, WCHAR *argv[
+     argumentUtf8 = NULL;
+     status = ConvertUTF16ToUTF8(serviceName, &argumentUtf8, NULL);
+     if (ERROR_SUCCESS != status)
+-        return perror2(status, "ConvertUTF16ToUTF8");
++        return win_perror2(status, "ConvertUTF16ToUTF8");
+ 
+     hresult = StringCchCopyA(triggerParams.service_name, sizeof(triggerParams.service_name), argumentUtf8);
+     if (FAILED(hresult))
+-        return perror2(hresult, "StringCchCopyA");
++        return win_perror2(hresult, "StringCchCopyA");
+ 
+     ConvertFree(argumentUtf8);
+     argumentUtf8 = NULL;
+ 
+     status = ConvertUTF16ToUTF8(domainName, &argumentUtf8, NULL);
+     if (ERROR_SUCCESS != status)
+-        return perror2(status, "ConvertUTF16ToUTF8");
++        return win_perror2(status, "ConvertUTF16ToUTF8");
+ 
+     hresult = StringCchCopyA(triggerParams.target_domain, sizeof(triggerParams.target_domain), argumentUtf8);
+     if (FAILED(hresult))
+-        return perror2(hresult, "StringCchCopyA");
++        return win_perror2(hresult, "StringCchCopyA");
+ 
+     ConvertFree(argumentUtf8);
+     argumentUtf8 = NULL;
+@@ -85,20 +85,20 @@ int __cdecl wmain(int argc, WCHAR *argv[
+     LogDebug("Connecting to qrexec-agent");
+ 
+     if (ERROR_SUCCESS != QpsConnect(pipeName, &readPipe, &writePipe))
+-        return perror("open agent pipe");
++        return win_perror("open agent pipe");
+ 
+     CloseHandle(readPipe);
+     LogDebug("Sending the parameters to qrexec-agent");
+ 
+     if (!QioWriteBuffer(writePipe, &triggerParams, sizeof(triggerParams)))
+-        return perror("write trigger params to agent");
++        return win_perror("write trigger params to agent");
+ 
+     size = (wcslen(commandLine) + 1) * sizeof(WCHAR);
+     if (!QioWriteBuffer(writePipe, &size, sizeof(size)))
+-        return perror("write command size to agent");
++        return win_perror("write command size to agent");
+ 
+     if (!QioWriteBuffer(writePipe, commandLine, (DWORD)size))
+-        return perror("write command to agent");
++        return win_perror("write command to agent");
+ 
+     CloseHandle(writePipe);
+ 
+diff -pruN a/src/qrexec-services/clipboard-copy/clipboard-copy.c b/src/qrexec-services/clipboard-copy/clipboard-copy.c
+--- a/src/qrexec-services/clipboard-copy/clipboard-copy.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/clipboard-copy/clipboard-copy.c	2020-01-17 13:31:52.962729301 +0300
+@@ -20,7 +20,7 @@
+  */
+ 
+ #include <windows.h>
+-#include <Shlwapi.h>
++#include <shlwapi.h>
+ #include <strsafe.h>
+ #include <stdlib.h>
+ 
+@@ -42,14 +42,14 @@ BOOL WriteClipboardText(IN HWND window,
+ 
+     if (!OpenClipboard(window))
+     {
+-        perror("OpenClipboard");
++        win_perror("OpenClipboard");
+         return FALSE;
+     }
+ 
+     clipData = GetClipboardData(CLIPBOARD_FORMAT);
+     if (!clipData)
+     {
+-        perror("GetClipboardData");
++        win_perror("GetClipboardData");
+         CloseClipboard();
+         return FALSE;
+     }
+@@ -57,14 +57,14 @@ BOOL WriteClipboardText(IN HWND window,
+     clipText = GlobalLock(clipData);
+     if (!clipText)
+     {
+-        perror("GlobalLock");
++        win_perror("GlobalLock");
+         CloseClipboard();
+         return FALSE;
+     }
+ 
+     if (FAILED(ConvertUTF16ToUTF8(clipText, &clipTextUtf8, &cbTextUtf8)))
+     {
+-        perror("ConvertUTF16ToUTF8");
++        win_perror("ConvertUTF16ToUTF8");
+         GlobalUnlock(clipData);
+         CloseClipboard();
+         return FALSE;
+@@ -72,7 +72,7 @@ BOOL WriteClipboardText(IN HWND window,
+ 
+     if (!QioWriteBuffer(outputFile, clipTextUtf8, (DWORD)cbTextUtf8))
+     {
+-        perror("QioWriteBuffer");
++        win_perror("QioWriteBuffer");
+         GlobalUnlock(clipData);
+         CloseClipboard();
+         return FALSE;
+@@ -90,7 +90,7 @@ int APIENTRY wWinMain(HINSTANCE instance
+     stdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+     if (stdOut == INVALID_HANDLE_VALUE)
+     {
+-        perror("GetStdHandle");
++        win_perror("GetStdHandle");
+         return 1;
+     }
+     if (!WriteClipboardText(NULL, stdOut))
+diff -pruN a/src/qrexec-services/clipboard-paste/clipboard-paste.c b/src/qrexec-services/clipboard-paste/clipboard-paste.c
+--- a/src/qrexec-services/clipboard-paste/clipboard-paste.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/clipboard-paste/clipboard-paste.c	2020-01-17 13:31:52.962729301 +0300
+@@ -20,7 +20,7 @@
+  */
+ 
+ #include <windows.h>
+-#include <Shlwapi.h>
++#include <shlwapi.h>
+ #include <strsafe.h>
+ #include <stdlib.h>
+ 
+@@ -57,21 +57,21 @@ BOOL ReadClipboardText(IN HWND window, I
+ 
+     if (ERROR_SUCCESS != ConvertUTF8ToUTF16(inputText, &text, &cchText))
+     {
+-        perror("ConvertUTF8ToUTF16");
++        win_perror("ConvertUTF8ToUTF16");
+         goto fail;
+     }
+ 
+     clipData = GlobalAlloc(GMEM_MOVEABLE, (cchText + 1) * sizeof(WCHAR));
+     if (!clipData)
+     {
+-        perror("GlobalAlloc");
++        win_perror("GlobalAlloc");
+         goto fail;
+     }
+ 
+     textLocked = GlobalLock(clipData);
+     if (!textLocked)
+     {
+-        perror("GlobalLock");
++        win_perror("GlobalLock");
+         GlobalFree(clipData);
+         goto fail;
+     }
+@@ -83,14 +83,14 @@ BOOL ReadClipboardText(IN HWND window, I
+ 
+     if (!OpenClipboard(window))
+     {
+-        perror("OpenClipboard");
++        win_perror("OpenClipboard");
+         GlobalFree(clipData);
+         goto fail;
+     }
+ 
+     if (!EmptyClipboard())
+     {
+-        perror("EmptyClipboard");
++        win_perror("EmptyClipboard");
+         GlobalFree(clipData);
+         CloseClipboard();
+         goto fail;
+@@ -98,7 +98,7 @@ BOOL ReadClipboardText(IN HWND window, I
+ 
+     if (!SetClipboardData(CLIPBOARD_FORMAT, clipData))
+     {
+-        perror("SetClipboardData");
++        win_perror("SetClipboardData");
+         GlobalFree(clipData);
+         CloseClipboard();
+         goto fail;
+@@ -133,7 +133,7 @@ HWND CreateMainWindow(IN HINSTANCE insta
+     windowClassAtom = RegisterClassEx(&wc);
+     if (!windowClassAtom)
+     {
+-        perror("RegisterClassEx");
++        win_perror("RegisterClassEx");
+         return NULL;
+     }
+ 
+@@ -157,13 +157,13 @@ int APIENTRY wWinMain(HINSTANCE instance
+     stdIn = GetStdHandle(STD_INPUT_HANDLE);
+     if (stdIn == INVALID_HANDLE_VALUE)
+     {
+-        return perror("GetStdHandle");
++        return win_perror("GetStdHandle");
+     }
+ 
+     window = CreateMainWindow(instance);
+     if (!window)
+     {
+-        return perror("createMainWindow");
++        return win_perror("createMainWindow");
+     }
+ 
+     if (!ReadClipboardText(window, stdIn))
+diff -pruN a/src/qrexec-services/common/filecopy.c b/src/qrexec-services/common/filecopy.c
+--- a/src/qrexec-services/common/filecopy.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/common/filecopy.c	2020-01-17 13:31:52.962729301 +0300
+@@ -19,7 +19,7 @@
+  *
+  */
+ 
+-#include <Windows.h>
++#include <windows.h>
+ 
+ #include "filecopy.h"
+ #include "crc32.h"
+@@ -43,7 +43,7 @@ FC_COPY_STATUS FcCopyFile(IN HANDLE outp
+ 
+         if (!ReadFile(input, buffer, cbToRead, &cbRead, NULL))
+         {
+-            perror("ReadFile");
++            win_perror("ReadFile");
+             return COPY_FILE_READ_ERROR;
+         }
+ 
+diff -pruN a/src/qrexec-services/common/filecopy-error.c b/src/qrexec-services/common/filecopy-error.c
+--- a/src/qrexec-services/common/filecopy-error.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/common/filecopy-error.c	2020-01-17 13:31:52.962729301 +0300
+@@ -22,7 +22,7 @@
+ #include <windows.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+-#include <Strsafe.h>
++#include <strsafe.h>
+ 
+ #include <log.h>
+ 
+diff -pruN a/src/qrexec-services/common/linux.h b/src/qrexec-services/common/linux.h
+--- a/src/qrexec-services/common/linux.h	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/common/linux.h	2020-01-17 13:31:52.962729301 +0300
+@@ -24,6 +24,7 @@
+ #define UNIX_EPOCH_OFFSET 11644478640LL
+ 
+ #pragma warning(suppress:4005) // macro redefinition: ENAMETOOLONG is defined as 38 in crt's errno.h even though MSDN claims it should be Unix compatible
++#undef ENAMETOOLONG
+ #define ENAMETOOLONG    36      /* File name too long */
+ #define EDQUOT          122     /* Quota exceeded */
+ 
+diff -pruN a/src/qrexec-services/file-receiver/file-receiver.c b/src/qrexec-services/file-receiver/file-receiver.c
+--- a/src/qrexec-services/file-receiver/file-receiver.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/file-receiver/file-receiver.c	2020-01-17 13:31:52.963729303 +0300
+@@ -22,13 +22,16 @@
+ #include <windows.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+-#include <Strsafe.h>
+-#include <Shlwapi.h>
++#include <shlwapi.h>
+ #include <shlobj.h>
+-#include <Shellapi.h>
++#include <shellapi.h>
++#include <strsafe.h>
+ 
+ #include <log.h>
+ 
++#ifdef __MINGW32__
++#include "customddkinc.h"
++#endif
+ #include "wdk.h"
+ 
+ HANDLE g_stdin = INVALID_HANDLE_VALUE;
+@@ -70,19 +73,19 @@ ULONG MapDriveLetter(IN const WCHAR *tar
+ 
+     if (FAILED(hresult))
+     {
+-        return perror2(hresult, "StringCchPrintf");
++        return win_perror2(hresult, "StringCchPrintf");
+     }
+ 
+     hresult = StringCchCopyN(targetDirectoryDriveLetter, RTL_NUMBER_OF(targetDirectoryDriveLetter), targetDirectory, 2);
+     if (FAILED(hresult))
+     {
+-        return perror2(hresult, "StringCchCopyN");
++        return win_perror2(hresult, "StringCchCopyN");
+     }
+ 
+     ZeroMemory(&devicePath, sizeof(devicePath));
+     if (!QueryDosDevice(targetDirectoryDriveLetter, devicePath, RTL_NUMBER_OF(devicePath)))
+     {
+-        return perror("QueryDosDevice");
++        return win_perror("QueryDosDevice");
+     }
+ 
+     // Translate the directory path to a form of \Device\HarddiskVolumeN\path
+@@ -95,7 +98,7 @@ ULONG MapDriveLetter(IN const WCHAR *tar
+ 
+     if (FAILED(hresult))
+     {
+-        return perror2(hresult, "StringCchPrintf");
++        return win_perror2(hresult, "StringCchPrintf");
+     }
+ 
+     logicalDrives = GetLogicalDrives();
+@@ -160,30 +163,30 @@ int __cdecl wmain(int argc, WCHAR *argv[
+     g_stderr = GetStdHandle(STD_ERROR_HANDLE);
+     if (g_stderr == NULL || g_stderr == INVALID_HANDLE_VALUE)
+     {
+-        return perror("GetStdHandle(STD_ERROR_HANDLE)");
++        return win_perror("GetStdHandle(STD_ERROR_HANDLE)");
+     }
+ 
+     g_stdin = GetStdHandle(STD_INPUT_HANDLE);
+     if (g_stdin == NULL || g_stdin == INVALID_HANDLE_VALUE)
+     {
+-        return perror("GetStdHandle(STD_INPUT_HANDLE)");
++        return win_perror("GetStdHandle(STD_INPUT_HANDLE)");
+     }
+ 
+     g_stdout = GetStdHandle(STD_OUTPUT_HANDLE);
+     if (g_stdout == NULL || g_stdout == INVALID_HANDLE_VALUE)
+     {
+-        return perror("GetStdHandle(STD_OUTPUT_HANDLE)");
++        return win_perror("GetStdHandle(STD_OUTPUT_HANDLE)");
+     }
+ 
+     if (!GetEnvironmentVariable(L"QREXEC_REMOTE_DOMAIN", remoteDomainName, RTL_NUMBER_OF(remoteDomainName)))
+     {
+-        return perror("GetEnvironmentVariable(QREXEC_REMOTE_DOMAIN)");
++        return win_perror("GetEnvironmentVariable(QREXEC_REMOTE_DOMAIN)");
+     }
+ 
+     hresult = SHGetKnownFolderPath(&FOLDERID_Documents, KF_FLAG_CREATE, NULL, &documentsPath);
+     if (FAILED(hresult))
+     {
+-        return perror2(hresult, "SHGetKnownFolderPath");
++        return win_perror2(hresult, "SHGetKnownFolderPath");
+     }
+ 
+     hresult = StringCchPrintf(
+@@ -198,19 +201,19 @@ int __cdecl wmain(int argc, WCHAR *argv[
+ 
+     if (FAILED(hresult))
+     {
+-        return perror2(hresult, "StringCchPrintf");
++        return win_perror2(hresult, "StringCchPrintf");
+     }
+ 
+     errorCode = SHCreateDirectoryEx(NULL, incomingDir, NULL);
+     if (ERROR_SUCCESS != errorCode && ERROR_ALREADY_EXISTS != errorCode)
+     {
+-        return perror2(hresult, "SHCreateDirectoryEx");
++        return win_perror2(hresult, "SHCreateDirectoryEx");
+     }
+ 
+     errorCode = MapDriveLetter(incomingDir, &g_mappedDriveLetter);
+     if (ERROR_SUCCESS != errorCode)
+     {
+-        return perror2(errorCode, "MapDriveLetter");
++        return win_perror2(errorCode, "MapDriveLetter");
+     }
+ 
+     return ReceiveFiles();
+diff -pruN a/src/qrexec-services/file-receiver/unpack.c b/src/qrexec-services/file-receiver/unpack.c
+--- a/src/qrexec-services/file-receiver/unpack.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/file-receiver/unpack.c	2020-01-17 13:31:52.963729303 +0300
+@@ -23,8 +23,8 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <errno.h>
+-#include <Strsafe.h>
+-#include <Shlwapi.h>
++#include <shlwapi.h>
++#include <strsafe.h>
+ 
+ #include <utf8-conv.h>
+ #include <qubes-io.h>
+diff -pruN a/src/qrexec-services/file-sender/file-sender.c b/src/qrexec-services/file-sender/file-sender.c
+--- a/src/qrexec-services/file-sender/file-sender.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/file-sender/file-sender.c	2020-01-17 13:31:52.963729303 +0300
+@@ -24,9 +24,9 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <errno.h>
+-#include <Strsafe.h>
+-#include <Shlwapi.h>
+-#include <Shellapi.h>
++#include <shlwapi.h>
++#include <shellapi.h>
++#include <strsafe.h>
+ 
+ #include <log.h>
+ #include <utf8-conv.h>
+diff -pruN a/src/qrexec-services/file-sender/file-sender.rc b/src/qrexec-services/file-sender/file-sender.rc
+--- a/src/qrexec-services/file-sender/file-sender.rc	1970-01-01 03:00:00.000000000 +0300
++++ b/src/qrexec-services/file-sender/file-sender.rc	2020-01-17 13:31:52.963729303 +0300
+@@ -0,0 +1,2 @@
++#include "winuser.h"
++1 RT_MANIFEST file-sender.exe.manifest
+diff -pruN a/src/qrexec-services/file-sender/gui-progress.c b/src/qrexec-services/file-sender/gui-progress.c
+--- a/src/qrexec-services/file-sender/gui-progress.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/file-sender/gui-progress.c	2020-01-17 13:31:52.963729303 +0300
+@@ -99,7 +99,7 @@ static void CreateProgressWindow(void)
+     g_progressWindowThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE) TaskDialogThread, NULL, 0, NULL);
+     if (!g_progressWindowThread)
+     {
+-        perror("CreateThread");
++        win_perror("CreateThread");
+         return;
+     }
+ 
+diff -pruN a/src/qrexec-services/get-image-rgba/get-image-rgba.c b/src/qrexec-services/get-image-rgba/get-image-rgba.c
+--- a/src/qrexec-services/get-image-rgba/get-image-rgba.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/get-image-rgba/get-image-rgba.c	2020-01-17 13:35:57.965294035 +0300
+@@ -20,9 +20,9 @@
+  */
+
+ #include <windows.h>
+-#include <Shlwapi.h>
++#include <shlwapi.h>
+ #include <shellapi.h>
+-#include <CommCtrl.h>
++#include <commctrl.h>
+
+ #include <stdio.h>
+ #include <io.h>
+@@ -51,7 +51,7 @@ DWORD GetShortcutPath(OUT WCHAR *linkPat
+     size = QioReadUntilEof(GetStdHandle(STD_INPUT_HANDLE), param, sizeof(param) - 1);
+     if (size == 0)
+     {
+-        status = perror("QioReadUntilEof(stdin)");
++        status = win_perror("QioReadUntilEof(stdin)");
+         goto cleanup;
+     }
+ 
+@@ -76,7 +76,7 @@ DWORD GetShortcutPath(OUT WCHAR *linkPat
+     // convert ascii to wchar
+     if (ERROR_SUCCESS != ConvertUTF8ToUTF16(param, &valueName, NULL))
+     {
+-        status = perror("ConvertUTF8ToUTF16");
++        status = win_perror("ConvertUTF8ToUTF16");
+         goto cleanup;
+     }
+ 
+@@ -85,7 +85,7 @@ DWORD GetShortcutPath(OUT WCHAR *linkPat
+     SetLastError(status = RegOpenKeyEx(HKEY_LOCAL_MACHINE, APP_MAP_KEY, 0, KEY_READ, &key));
+     if (status != ERROR_SUCCESS)
+     {
+-        status = perror("RegOpenKeyEx(AppMap key)");
++        status = win_perror("RegOpenKeyEx(AppMap key)");
+         goto cleanup;
+     }
+ 
+@@ -93,14 +93,14 @@ DWORD GetShortcutPath(OUT WCHAR *linkPat
+     SetLastError(status = RegQueryValueEx(key, valueName + strlen(INPUT_PREFIX), NULL, &valueType, (BYTE *) linkPath, &size));
+     if (status != ERROR_SUCCESS)
+     {
+-        status = perror("RegQueryValueEx");
++        status = win_perror("RegQueryValueEx");
+         goto cleanup;
+     }
+ 
+     if (valueType != REG_SZ)
+     {
+         SetLastError(status = ERROR_DATATYPE_MISMATCH);
+-        perror("RegQueryValueEx");
++        win_perror("RegQueryValueEx");
+         goto cleanup;
+     }
+ 
+@@ -142,7 +142,7 @@ int wmain(int argc, WCHAR *argv[])
+     // Read input and convert it to the shortcut path.
+     if (ERROR_SUCCESS != GetShortcutPath(linkPath, MAX_PATH_LONG))
+     {
+-        status = perror("GetShortcutPath");
++        status = win_perror("GetShortcutPath");
+         goto cleanup;
+     }
+ 
+@@ -157,7 +157,7 @@ int wmain(int argc, WCHAR *argv[])
+     LogDebug("SHGetFileInfo(%s) returned 0x%x, shfi.iIcon=%d", linkPath, imgList, shfi.iIcon);
+     if (!imgList)
+     {
+-        status = perror("SHGetFileInfo(SHGFI_SYSICONINDEX)");
++        status = win_perror("SHGetFileInfo(SHGFI_SYSICONINDEX)");
+         goto cleanup;
+     }
+ 
+@@ -165,14 +165,14 @@ int wmain(int argc, WCHAR *argv[])
+     ico = ImageList_GetIcon(imgList, shfi.iIcon, ILD_TRANSPARENT);
+     if (!ico)
+     {
+-        status = perror("ImageList_GetIcon(ILD_TRANSPARENT)");
++        status = win_perror("ImageList_GetIcon(ILD_TRANSPARENT)");
+         goto cleanup;
+     }
+ 
+     // Create bitmap for the icon.
+     if (!GetIconInfo(ico, &ii))
+     {
+-        status = perror("GetIconInfo");
++        status = win_perror("GetIconInfo");
+         goto cleanup;
+     }
+ 
+diff -pruN a/src/qrexec-services/open-in-vm/qopen-in-vm.c b/src/qrexec-services/open-in-vm/qopen-in-vm.c
+--- a/src/qrexec-services/open-in-vm/qopen-in-vm.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/open-in-vm/qopen-in-vm.c	2020-01-17 13:31:52.964729305 +0300
+@@ -19,7 +19,7 @@
+  *
+  */
+ 
+-#include <Windows.h>
++#include <windows.h>
+ #include <stdio.h>
+ #include <strsafe.h>
+ #include <string.h>
+diff -pruN a/src/qrexec-services/open-url/open-url.c b/src/qrexec-services/open-url/open-url.c
+--- a/src/qrexec-services/open-url/open-url.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/open-url/open-url.c	2020-01-17 13:31:52.964729305 +0300
+@@ -45,7 +45,7 @@ int APIENTRY wWinMain(HINSTANCE instance
+ #pragma warning(suppress:4311)
+     if ((int)ShellExecuteA(NULL, "open", Url, NULL, NULL, SW_SHOWNORMAL) <= 32)
+     {
+-        perror("ShellExecute failed");
++        win_perror("ShellExecute failed");
+         return GetLastError();
+     }
+ 
+diff -pruN a/src/qrexec-services/vm-file-editor/vm-file-editor.c b/src/qrexec-services/vm-file-editor/vm-file-editor.c
+--- a/src/qrexec-services/vm-file-editor/vm-file-editor.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/vm-file-editor/vm-file-editor.c	2020-01-17 13:31:52.965729308 +0300
+@@ -19,13 +19,13 @@
+  *
+  */
+ 
+-#include <Windows.h>
++#include <windows.h>
+ #include <stdio.h>
+ #include <string.h>
+ #include <stdlib.h>
+-#include <Strsafe.h>
+-#include <Shellapi.h>
++#include <shellapi.h>
+ #include <rpc.h>
++#include <strsafe.h>
+ 
+ #include <log.h>
+ #include <utf8-conv.h>
+@@ -221,7 +221,7 @@ int __cdecl wmain(int argc, WCHAR *argv[
+     g_stdIn = GetStdHandle(STD_INPUT_HANDLE);
+     if (g_stdIn == INVALID_HANDLE_VALUE)
+     {
+-        exitCode = perror("GetStdHandle(STD_INPUT_HANDLE)");
++        exitCode = win_perror("GetStdHandle(STD_INPUT_HANDLE)");
+         fprintf(stderr, "Failed to open STDIN: 0x%x\n", exitCode);
+         goto cleanup;
+     }
+@@ -229,7 +229,7 @@ int __cdecl wmain(int argc, WCHAR *argv[
+     g_stdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+     if (g_stdOut == INVALID_HANDLE_VALUE)
+     {
+-        exitCode = perror("GetStdHandle(STD_OUTPUT_HANDLE)");
++        exitCode = win_perror("GetStdHandle(STD_OUTPUT_HANDLE)");
+         fprintf(stderr, "Failed to open STDOUT: 0x%x\n", exitCode);
+         goto cleanup;
+     }
+@@ -240,7 +240,7 @@ int __cdecl wmain(int argc, WCHAR *argv[
+ 
+     if (!GetFileAttributesEx(filePath, GetFileExInfoStandard, &attributesPre))
+     {
+-        exitCode = perror("GetFileAttributesEx pre");
++        exitCode = win_perror("GetFileAttributesEx pre");
+         fprintf(stderr, "Failed to get file attributes pre: 0x%x\n", exitCode);
+         goto cleanup;
+     }
+@@ -259,7 +259,7 @@ int __cdecl wmain(int argc, WCHAR *argv[
+ 
+     if (!ShellExecuteEx(&sei))
+     {
+-        exitCode = perror("ShellExecuteEx");
++        exitCode = win_perror("ShellExecuteEx");
+         fprintf(stderr, "Editor startup failed: 0x%x\n", exitCode);
+         goto cleanup;
+     }
+@@ -276,7 +276,7 @@ int __cdecl wmain(int argc, WCHAR *argv[
+ 
+     if (!GetExitCodeProcess(sei.hProcess, &childExitCode))
+     {
+-        exitCode = perror("GetExitCodeProcess");
++        exitCode = win_perror("GetExitCodeProcess");
+         fprintf(stderr, "Cannot get editor exit code: 0x%x\n", exitCode);
+         goto cleanup;
+     }
+@@ -294,7 +294,7 @@ int __cdecl wmain(int argc, WCHAR *argv[
+ 
+     if (!GetFileAttributesEx(filePath, GetFileExInfoStandard, &attributesPost))
+     {
+-        exitCode = perror("GetFileAttributesEx post");
++        exitCode = win_perror("GetFileAttributesEx post");
+         fprintf(stderr, "Failed to get file attributes post: 0x%x\n", exitCode);
+         goto cleanup;
+     }
+diff -pruN a/src/qrexec-services/wait-for-logon/wait-for-logon.c b/src/qrexec-services/wait-for-logon/wait-for-logon.c
+--- a/src/qrexec-services/wait-for-logon/wait-for-logon.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/wait-for-logon/wait-for-logon.c	2020-01-17 13:31:52.965729308 +0300
+@@ -19,11 +19,11 @@
+  *
+  */
+ 
+-#include <Windows.h>
++#include <windows.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+-#include <Wtsapi32.h>
+-#include <Shlwapi.h>
++#include <wtsapi32.h>
++#include <shlwapi.h>
+ 
+ #include <qubes-io.h>
+ #include <utf8-conv.h>
+@@ -39,7 +39,7 @@ BOOL CheckSession(DWORD	sessionId)
+ 
+     if (!WTSQuerySessionInformation(WTS_CURRENT_SERVER_HANDLE, sessionId, WTSUserName, &userName, &cbUserName))
+     {
+-        perror("WTSQuerySessionInformation");
++        win_perror("WTSQuerySessionInformation");
+         return FALSE;
+     }
+ 
+@@ -62,7 +62,7 @@ BOOL CheckIfUserLoggedIn(void)
+ 
+     if (!WTSEnumerateSessions(WTS_CURRENT_SERVER_HANDLE, 0, 1, &sessionInfo, &sessionCount))
+     {
+-        perror("WTSEnumerateSessions");
++        win_perror("WTSEnumerateSessions");
+         return FALSE;
+     }
+ 
+@@ -126,7 +126,7 @@ HWND CreateMainWindow(HINSTANCE instance
+     windowClassAtom = RegisterClassEx(&wc);
+     if (!windowClassAtom)
+     {
+-        perror("RegisterClassEx");
++        win_perror("RegisterClassEx");
+         return NULL;
+     }
+ 
+@@ -161,7 +161,7 @@ int APIENTRY wWinMain(HINSTANCE hInst, H
+         hStdIn = GetStdHandle(STD_INPUT_HANDLE);
+         if (hStdIn == INVALID_HANDLE_VALUE)
+         {
+-            perror("GetStdHandle");
++            win_perror("GetStdHandle");
+             return 1;
+         }
+ 
+@@ -183,7 +183,7 @@ int APIENTRY wWinMain(HINSTANCE hInst, H
+ 
+         if (ERROR_SUCCESS != ConvertUTF8ToUTF16(pszExpectedUserUtf8, &g_expectedUser, &cchExpectedUser))
+         {
+-            perror("Converting user name to UTF16");
++            win_perror("Converting user name to UTF16");
+             return 1;
+         }
+     }
+@@ -193,13 +193,13 @@ int APIENTRY wWinMain(HINSTANCE hInst, H
+ 
+     if (hMainWindow == INVALID_HANDLE_VALUE)
+     {
+-        perror("Creating main window");
++        win_perror("Creating main window");
+         return 1;
+     }
+ 
+     if (!WTSRegisterSessionNotification(hMainWindow, NOTIFY_FOR_ALL_SESSIONS))
+     {
+-        perror("WTSRegisterSessionNotification");
++        win_perror("WTSRegisterSessionNotification");
+         DestroyWindow(hMainWindow);
+         return 1;
+     }
+diff -pruN a/src/qrexec-services/window-icon-updater/window-icon-updater.c b/src/qrexec-services/window-icon-updater/window-icon-updater.c
+--- a/src/qrexec-services/window-icon-updater/window-icon-updater.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-services/window-icon-updater/window-icon-updater.c	2020-01-17 13:31:52.965729308 +0300
+@@ -87,7 +87,7 @@ BOOL CALLBACK EnumWindowsProc(
+     // Create bitmap for the icon.
+     if (!GetIconInfo(ico, &ii))
+     {
+-        status = perror("GetIconInfo");
++        status = win_perror("GetIconInfo");
+         goto cleanup;
+     }
+ 
+diff -pruN a/src/qrexec-wrapper/qrexec-wrapper.c b/src/qrexec-wrapper/qrexec-wrapper.c
+--- a/src/qrexec-wrapper/qrexec-wrapper.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/qrexec-wrapper/qrexec-wrapper.c	2020-01-17 13:36:44.302400845 +0300
+@@ -25,9 +25,9 @@
+ 
+ #include "qrexec-wrapper.h"
+ #include <stdlib.h>
+-#include <strsafe.h>
+-#include <Shlwapi.h>
++#include <shlwapi.h>
+ #include <assert.h>
++#include <strsafe.h>
+ 
+ #include <libvchan.h>
+ #include <qrexec.h>
+@@ -65,7 +65,7 @@ DWORD InitPipe(
+     sa.lpSecurityDescriptor = securityDescriptor;
+ 
+     if (!CreatePipe(&pipeData->ReadEndpoint, &pipeData->WriteEndpoint, &sa, PIPE_BUFFER_SIZE))
+-        return perror("CreatePipe");
++        return win_perror("CreatePipe");
+ 
+     return ERROR_SUCCESS;
+ }
+@@ -113,7 +113,7 @@ DWORD CreateChildPipes(
+     // create pipes and make sure endpoints we use are not inherited
+     status = InitPipe(&child->Stdout, PTYPE_STDOUT, child->PipeSd);
+     if (ERROR_SUCCESS != status)
+-        return perror2(status, "InitPipe(STDOUT)");
++        return win_perror2(status, "InitPipe(STDOUT)");
+ 
+     SetHandleInformation(child->Stdout.ReadEndpoint, HANDLE_FLAG_INHERIT, 0);
+ 
+@@ -121,7 +121,7 @@ DWORD CreateChildPipes(
+     if (ERROR_SUCCESS != status)
+     {
+         ClosePipe(&child->Stdout);
+-        return perror2(status, "InitPipe(STDERR)");
++        return win_perror2(status, "InitPipe(STDERR)");
+     }
+ 
+     SetHandleInformation(child->Stderr.ReadEndpoint, HANDLE_FLAG_INHERIT, 0);
+@@ -131,7 +131,7 @@ DWORD CreateChildPipes(
+     {
+         ClosePipe(&child->Stdout);
+         ClosePipe(&child->Stderr);
+-        return perror2(status, "InitPipe(STDIN)");
++        return win_perror2(status, "InitPipe(STDIN)");
+     }
+ 
+     SetHandleInformation(child->Stdin.WriteEndpoint, HANDLE_FLAG_INHERIT, 0);
+@@ -173,7 +173,7 @@ DWORD StartChild(
+     {
+         status = CreateChildPipes(child);
+         if (ERROR_SUCCESS != status)
+-            return perror2(status, "CreateChildPipes");
++            return win_perror2(status, "CreateChildPipes");
+     }
+ 
+     if (userName)
+@@ -192,7 +192,7 @@ DWORD StartChild(
+ 
+             if (ERROR_SUCCESS != status)
+             {
+-                perror2(status, "CreatePipedProcessAsUser");
++                win_perror2(status, "CreatePipedProcessAsUser");
+                 status = CreatePipedProcessAsCurrentUser(
+                     commandLine,
+                     interactive,
+@@ -213,7 +213,7 @@ DWORD StartChild(
+ 
+             if (ERROR_SUCCESS != status)
+             {
+-                perror2(status, "CreateNormalProcessAsUser");
++                win_perror2(status, "CreateNormalProcessAsUser");
+                 status = CreateNormalProcessAsCurrentUser(
+                     commandLine,
+                     &child->Process);
+@@ -259,10 +259,10 @@ DWORD StartChild(
+             CloseHandle(child->Stdin.WriteEndpoint);
+             CloseHandle(child->Stdout.ReadEndpoint);
+             CloseHandle(child->Stderr.ReadEndpoint);
+-            return perror2(status, "CreatePipedProcessAsCurrentUser");
++            return win_perror2(status, "CreatePipedProcessAsCurrentUser");
+         }
+ 
+-        return perror2(status, "CreateNormalProcessAsCurrentUser");
++        return win_perror2(status, "CreateNormalProcessAsCurrentUser");
+     }
+ 
+     return ERROR_SUCCESS;
+@@ -444,7 +444,7 @@ DWORD HandleRemoteData(
+         LogVerbose("writing %d bytes of inbound data to child", header->len);
+         if (!QioWriteBuffer(child->Stdin.WriteEndpoint, buffer, header->len))
+         {
+-            status = perror("writing stdin data");
++            status = win_perror("writing stdin data");
+             goto cleanup;
+         }
+     }
+@@ -631,7 +631,7 @@ static DWORD handle_child_output(
+         {
+             // if !ok, then nread == 0
+             // Signal error condition by sending EOF
+-            perror("ReadFile");
++            win_perror("ReadFile");
+         }
+         eof = nread == 0;
+         // EOF is signaled to the remote via zero count
+@@ -779,7 +779,7 @@ DWORD EventLoop(
+ 
+             if (!GetExitCodeProcess(child->Process, &exitCode))
+             {
+-                perror("GetExitCodeProcess");
++                win_perror("GetExitCodeProcess");
+                 exitCode = 0;
+             }
+ 
+@@ -895,7 +895,7 @@ int __cdecl wmain(int argc, WCHAR *argv[
+     status = CreatePublicPipeSecurityDescriptor(&child->PipeSd, &child->PipeAcl);
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "create pipe security descriptor");
++        win_perror2(status, "create pipe security descriptor");
+         goto cleanup;
+     }
+ 
+@@ -908,14 +908,14 @@ int __cdecl wmain(int argc, WCHAR *argv[
+         child->StdoutThread = CreateThread(NULL, 0, StdoutThread, child, 0, NULL);
+         if (!child->StdoutThread)
+         {
+-            status = perror("create stdout thread");
++            status = win_perror("create stdout thread");
+             goto cleanup;
+         }
+ 
+         child->StderrThread = CreateThread(NULL, 0, StderrThread, child, 0, NULL);
+         if (!child->StderrThread)
+         {
+-            status = perror("create stderr thread");
++            status = win_perror("create stderr thread");
+             goto cleanup;
+         }
+ 
+diff -pruN a/src/relocate-dir/main.c b/src/relocate-dir/main.c
+--- a/src/relocate-dir/main.c	2019-06-20 03:55:59.000000000 +0300
++++ b/src/relocate-dir/main.c	2020-01-17 13:31:52.966729310 +0300
+@@ -23,6 +23,10 @@
+ 
+ HANDLE g_Heap;
+ 
++#ifdef __MINGW32__
++#define TEXT(x) x
++#endif
++
+ __declspec(dllimport)
+ int _vsnwprintf(
+     wchar_t *buffer,

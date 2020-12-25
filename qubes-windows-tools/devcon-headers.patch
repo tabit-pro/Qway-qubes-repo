@@ -1,0 +1,12 @@
+--- a/devcon/devcon.h	2019-06-03 14:22:03.877961651 +0000
++++ b/devcon/devcon.h	2019-06-03 14:24:30.107298705 +0000
+@@ -27,6 +27,9 @@
+ #include <strsafe.h>
+ #include <io.h>
+ #include <fcntl.h>
++#ifdef __MINGW__
++#include <driverspecs.h>
++#endif
+ 
+ #include "msg.h"
+ #include "rc_ids.h"

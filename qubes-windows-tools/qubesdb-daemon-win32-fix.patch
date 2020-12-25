@@ -1,0 +1,37 @@
+diff -ruNp a/daemon/db-cmds.c b/daemon/db-cmds.c
+--- qubes-core-qubesdb-4.1.3/daemon/db-cmds.c	2020-01-05 15:03:11.000000000 +0300
++++ qubes-core-qubesdb-4.1.3/daemon/db-cmds.c	2020-01-21 15:32:23.536007757 +0300
+@@ -154,7 +154,9 @@ int write_vchan_or_client(struct db_daem
+             return 1;
+         write_queue = d->vchan_buffer;
+     } else {
++#ifndef WIN32
+         write_queue = c->write_queue;
++#endif
+     }
+ 
+ #ifdef WIN32
+@@ -168,9 +170,11 @@ int write_vchan_or_client(struct db_daem
+ 
+     /* now it's either vchan, or local client on Linux */
+     while ((buf_datacount = buffer_datacount(write_queue))) {
++#ifndef WIN32
+         if (c)
+             ret = write(c->fd, buffer_data(write_queue), buf_datacount);
+         else
++#endif
+             ret = vchan_write_nonblock(d->vchan, buffer_data(write_queue), buf_datacount);
+         if (ret < 0) {
+             if (errno == EAGAIN || errno == EWOULDBLOCK) {
+@@ -187,9 +191,11 @@ int write_vchan_or_client(struct db_daem
+ 
+     count = 0;
+     while (count < data_len) {
++#ifndef WIN32
+         if (c)
+             ret = write(c->fd, data+count, data_len-count);
+         else
++#endif
+             ret = vchan_write_nonblock(d->vchan, data+count, data_len-count);
+         if (ret < 0) {
+             if (errno == EAGAIN || errno == EWOULDBLOCK) {

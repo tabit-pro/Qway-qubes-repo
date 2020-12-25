@@ -1,0 +1,63 @@
+diff --git a/Makefile b/Makefile
+new file mode 100644
+index 0000000..4ac70a3
+--- /dev/null
++++ b/Makefile
+@@ -0,0 +1,11 @@
++OUTDIR = bin/$(ARCH)
++CFLAGS += -DUNICODE -municode -std=c11 -fgnu89-inline -D_WIN32_WINNT=0x0600
++LDFLAGS += -ladvapi32
++
++all: $(OUTDIR) $(OUTDIR)/uninstaller.exe
++
++$(OUTDIR):
++	mkdir -p $@
++
++$(OUTDIR)/uninstaller.exe: uninstaller/uninstaller.c
++	$(CC) $^ $(CFLAGS) $(LDFLAGS) -o $@
+diff --git a/Makefile.builder b/Makefile.builder
+index 6fc8abd..609c3ae 100644
+--- a/Makefile.builder
++++ b/Makefile.builder
+@@ -13,14 +13,14 @@ SOURCE_COPY_OUT := copy-versions-out
+ WIN_PREBUILD_CMD = set_version.bat && powershell -executionpolicy bypass -File set_version.ps1 < nul
+ WIN_PACKAGE_EXT := msi
+ WIN_POSTBUILD_CMD := del advertise-tools.exe && call $(WINDOWS_SCRIPTS)/sign.bat
++WIN_BUILD_DEPS := vmm-xen-windows-pvdrivers core-vchan-xen core-qubesdb windows-utils core-agent-windows gui-common gui-agent-windows
++WIN_OUTPUT_BIN := bin
++WIN_CROSS_POSTBUILD_CMD := rm -f advertise-tools.exe
+ endif
+ 
+ copy-components:
+-	mkdir -p $(CHROOT_DIR)/$(DIST_SRC)/components
+-	cp $(SRC_DIR)/*/*.msm $(CHROOT_DIR)/$(DIST_SRC)/components/
+-	cp $(SRC_DIR)/*/windows/*.msm $(CHROOT_DIR)/$(DIST_SRC)/components/
+ 	mkdir -p $(CHROOT_DIR)/$(DIST_SRC)/new-versions
+-	for c in $(filter-out installer-qubes-os-windows-tools builder-windows builder, $(COMPONENTS)); do \
++	for c in $(WIN_BUILD_DEPS); do \
+ 		cp $(SRC_DIR)/$$c/version \
+ 			$(CHROOT_DIR)/$(DIST_SRC)/new-versions/version-$$c 2>/dev/null; \
+ 	done
+@@ -29,7 +29,7 @@ copy-components:
+ 		echo $$[ `cat $(ORIG_SRC)/rel` + 1 ] > $(CHROOT_DIR)/$(DIST_SRC)/rel; \
+ 	fi
+ 
+-	cp $(BUILDER_REPO_DIR)/core-agent-windows/libs/advertise-tools.exe $(CHROOT_DIR)/$(DIST_SRC)
++	cp $(BUILDER_REPO_DIR)/core-agent-windows/lib/advertise-tools.exe $(CHROOT_DIR)/$(DIST_SRC)
+ 
+ copy-versions-out:
+ 	@echo "    components-versions"
+diff --git a/uninstaller/uninstaller.c b/uninstaller/uninstaller.c
+index c977fb9..cacdbaf 100644
+--- a/uninstaller/uninstaller.c
++++ b/uninstaller/uninstaller.c
+@@ -19,7 +19,8 @@
+  *
+  */
+ 
+-#include <Windows.h>
++#include <windows.h>
++#include <winreg.h>
+ 
+ /* 
+  * This utility performs post-uninstallation cleanup of Qubes Windows Tools.

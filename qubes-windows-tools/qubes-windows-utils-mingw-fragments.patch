@@ -1,0 +1,889 @@
+diff --git a/Makefile b/Makefile
+new file mode 100644
+index 0000000..3db74ff
+--- /dev/null
++++ b/Makefile
+@@ -0,0 +1,12 @@
++OUTDIR = bin/$(ARCH)
++CFLAGS += -Iinclude -DUNICODE -std=c11 -fgnu89-inline
++LDFLAGS += -lvchan -lshlwapi -lwtsapi32 -luserenv -lversion
++
++all: $(OUTDIR) $(OUTDIR)/windows-utils.dll
++
++$(OUTDIR):
++	mkdir -p $@
++
++$(OUTDIR)/windows-utils.dll: $(wildcard src/*.c)
++	$(CC) $^ $(CFLAGS) $(LDFLAGS) -DWINDOWSUTILS_EXPORTS -DNO_SHLWAPI_STRFCNS -shared -o $@
++
+diff --git a/include/config.h b/include/config.h
+index b5c2ae0..651da35 100644
+--- a/include/config.h
++++ b/include/config.h
+@@ -20,7 +20,7 @@
+  */
+ 
+ #pragma once
+-#include <Windows.h>
++#include <windows.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+diff --git a/include/error.h b/include/error.h
+index d9a7cc3..7f1f39a 100644
+--- a/include/error.h
++++ b/include/error.h
+@@ -20,7 +20,7 @@
+  */
+ 
+ #pragma once
+-#include <Windows.h>
++#include <windows.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+diff --git a/include/exec.h b/include/exec.h
+index 1701632..1ec908d 100644
+--- a/include/exec.h
++++ b/include/exec.h
+@@ -25,7 +25,7 @@
+ #include <aclapi.h>
+ #include <userenv.h>
+ #include <strsafe.h>
+-#include <Wtsapi32.h>
++#include <wtsapi32.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+diff --git a/include/list.h b/include/list.h
+index 3585785..3d0c3d7 100644
+--- a/include/list.h
++++ b/include/list.h
+@@ -21,6 +21,7 @@
+ 
+ #pragma once
+ #include <winnt.h>
++#include <driverspecs.h>
+ 
+ // List macros from Windows kernel headers
+ 
+@@ -37,7 +38,7 @@ InitializeListHead(
+ 
+ _Must_inspect_result_
+ BOOLEAN
+-CFORCEINLINE
++FORCEINLINE
+ IsListEmpty(
+     _In_ const LIST_ENTRY * ListHead
+     )
+diff --git a/include/log.h b/include/log.h
+index cbdcf60..8b5b8a7 100644
+--- a/include/log.h
++++ b/include/log.h
+@@ -119,12 +119,12 @@ void _LogFormat(IN int level, IN BOOL raw, IN const char *functionName, IN const
+ 
+ // Returns last error code.
+ WINDOWSUTILS_API
+-DWORD _perror(IN const char *functionName, IN const WCHAR *prefix);
+-#define perror(prefix) _perror(__FUNCTION__, L##prefix)
++DWORD _win_perror(IN const char *functionName, IN const WCHAR *prefix);
++#define win_perror(prefix) _win_perror(__FUNCTION__, L##prefix)
+ 
+ WINDOWSUTILS_API
+-DWORD _perror2(IN const char *functionName, IN DWORD errorCode, IN const WCHAR *prefix);
+-#define perror2(error, prefix) _perror2(__FUNCTION__, error, L##prefix)
++DWORD _win_perror2(IN const char *functionName, IN DWORD errorCode, IN const WCHAR *prefix);
++#define win_perror2(error, prefix) _win_perror2(__FUNCTION__, error, L##prefix)
+ 
+ // hex_dump only logs if DEBUG is defined.
+ // You can define LOG_NO_HEX_DUMP to disable it even in DEBUG build (it can generate massive log files).
+diff --git a/include/qubes-io.h b/include/qubes-io.h
+index 43228ef..b6a538e 100644
+--- a/include/qubes-io.h
++++ b/include/qubes-io.h
+@@ -20,7 +20,7 @@
+  */
+ 
+ #pragma once
+-#include <Windows.h>
++#include <windows.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+diff --git a/include/qubes-string.h b/include/qubes-string.h
+index fcb85da..a7cd5d0 100644
+--- a/include/qubes-string.h
++++ b/include/qubes-string.h
+@@ -20,7 +20,7 @@
+  */
+ 
+ #pragma once
+-#include <Windows.h>
++#include <windows.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+diff --git a/include/utf8-conv.h b/include/utf8-conv.h
+index 6642e17..3a87728 100644
+--- a/include/utf8-conv.h
++++ b/include/utf8-conv.h
+@@ -20,7 +20,7 @@
+  */
+ 
+ #pragma once
+-#include <Windows.h>
++#include <windows.h>
+ #include <stdlib.h>
+ 
+ #ifdef __cplusplus
+diff --git a/src/config.c b/src/config.c
+index 7034d63..65d438f 100644
+--- a/src/config.c
++++ b/src/config.c
+@@ -19,8 +19,8 @@
+  *
+  */
+ 
+-#include <Windows.h>
+-#include <Shlwapi.h>
++#include <windows.h>
++#include <shlwapi.h>
+ #include <strsafe.h>
+ 
+ #include "config.h"
+diff --git a/src/exec.c b/src/exec.c
+index 77aee5b..e1d0362 100644
+--- a/src/exec.c
++++ b/src/exec.c
+@@ -52,14 +52,14 @@ DWORD GetAccountSid(
+         status = GetLastError();
+         if (ERROR_INSUFFICIENT_BUFFER != status)
+         {
+-            return perror("LookupAccountName");
++            return win_perror("LookupAccountName");
+         }
+     }
+ 
+     *sid = LocalAlloc(LPTR, cbSid);
+     if (*sid == NULL)
+     {
+-        return perror("LocalAlloc");
++        return win_perror("LocalAlloc");
+     }
+ 
+     if (!LookupAccountName(
+@@ -73,7 +73,7 @@ DWORD GetAccountSid(
+     {
+         status = GetLastError();
+         LocalFree(*sid);
+-        return perror2(status, "LookupAccountName");
++        return win_perror2(status, "LookupAccountName");
+     }
+ 
+     return ERROR_SUCCESS;
+@@ -106,14 +106,14 @@ DWORD GetObjectSecurityDescriptorDacl(
+         status = GetLastError();
+         if (ERROR_INSUFFICIENT_BUFFER != status)
+         {
+-            return perror("GetUserObjectSecurity");
++            return win_perror("GetUserObjectSecurity");
+         }
+     }
+ 
+     *sd = LocalAlloc(LPTR, sizeNeeded);
+     if (*sd == NULL)
+     {
+-        return perror("LocalAlloc");
++        return win_perror("LocalAlloc");
+     }
+ 
+     if (!GetUserObjectSecurity(
+@@ -123,14 +123,14 @@ DWORD GetObjectSecurityDescriptorDacl(
+         sizeNeeded,
+         &sizeNeeded))
+     {
+-        return perror("GetUserObjectSecurity");
++        return win_perror("GetUserObjectSecurity");
+     }
+ 
+     if (!GetSecurityDescriptorDacl(*sd, daclPresent, dacl, &daclDefaulted))
+     {
+         status = GetLastError();
+         LocalFree(*sd);
+-        return perror2(status, "GetSecurityDescriptorDacl");
++        return win_perror2(status, "GetSecurityDescriptorDacl");
+     }
+ 
+     return ERROR_SUCCESS;
+@@ -155,7 +155,7 @@ DWORD MergeWithExistingDacl(
+     status = GetObjectSecurityDescriptorDacl(object, &sd, &daclPresent, &dacl);
+     if (ERROR_SUCCESS != status)
+     {
+-        perror("GetObjectSecurityDescriptorDacl");
++        win_perror("GetObjectSecurityDescriptorDacl");
+         goto cleanup;
+     }
+ 
+@@ -163,32 +163,32 @@ DWORD MergeWithExistingDacl(
+ 
+     if (ERROR_SUCCESS != status)
+     {
+-        perror("SetEntriesInAcl");
++        win_perror("SetEntriesInAcl");
+         goto cleanup;
+     }
+ 
+     sd = LocalAlloc(LPTR, SECURITY_DESCRIPTOR_MIN_LENGTH);
+     if (!sd)
+     {
+-        status = perror("LocalAlloc");
++        status = win_perror("LocalAlloc");
+         goto cleanup;
+     }
+ 
+     if (!InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION))
+     {
+-        status = perror("InitializeSecurityDescriptor");
++        status = win_perror("InitializeSecurityDescriptor");
+         goto cleanup;
+     }
+ 
+     if (!SetSecurityDescriptorDacl(sd, TRUE, newAcl, FALSE))
+     {
+-        status = perror("SetSecurityDescriptorDacl");
++        status = win_perror("SetSecurityDescriptorDacl");
+         goto cleanup;
+     }
+ 
+     if (!SetUserObjectSecurity(object, &siRequested, sd))
+     {
+-        status = perror("SetUserObjectSecurity");
++        status = win_perror("SetUserObjectSecurity");
+         goto cleanup;
+     }
+ 
+@@ -221,7 +221,7 @@ DWORD GrantDesktopAccess(
+     originalWindowStation = GetProcessWindowStation();
+     if (!originalWindowStation)
+     {
+-        return perror("GetProcessWindowStation");
++        return win_perror("GetProcessWindowStation");
+     }
+ 
+     windowStation = OpenWindowStation(
+@@ -231,12 +231,12 @@ DWORD GrantDesktopAccess(
+ 
+     if (!windowStation)
+     {
+-        return perror("OpenWindowStation");
++        return win_perror("OpenWindowStation");
+     }
+ 
+     if (!SetProcessWindowStation(windowStation))
+     {
+-        status = perror("SetProcessWindowStation");
++        status = win_perror("SetProcessWindowStation");
+         goto cleanup;
+     }
+ 
+@@ -248,20 +248,20 @@ DWORD GrantDesktopAccess(
+ 
+     if (!desktop)
+     {
+-        status = perror("OpenDesktop");
++        status = win_perror("OpenDesktop");
+         goto cleanup;
+     }
+ 
+     if (!SetProcessWindowStation(originalWindowStation))
+     {
+-        status = perror("SetProcessWindowStation(Original)");
++        status = win_perror("SetProcessWindowStation(Original)");
+         goto cleanup;
+     }
+ 
+     status = GetAccountSid(accountName, systemName, &sid);
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "GetAccountSid");
++        win_perror2(status, "GetAccountSid");
+         goto cleanup;
+     }
+ 
+@@ -281,7 +281,7 @@ DWORD GrantDesktopAccess(
+     status = MergeWithExistingDacl(windowStation, 2, newEa);
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "MergeWithExistingDacl(WindowStation)");
++        win_perror2(status, "MergeWithExistingDacl(WindowStation)");
+         goto cleanup;
+     }
+ 
+@@ -292,7 +292,7 @@ DWORD GrantDesktopAccess(
+     status = MergeWithExistingDacl(desktop, 1, newEa);
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "MergeWithExistingDacl(Desktop)");
++        win_perror2(status, "MergeWithExistingDacl(Desktop)");
+         goto cleanup;
+     }
+ 
+@@ -328,7 +328,7 @@ DWORD GrantRemoteSessionDesktopAccess(
+ 
+     if (!ProcessIdToSessionId(GetCurrentProcessId(), &currentSessionId))
+     {
+-        return perror("ProcessIdToSessionId");
++        return win_perror("ProcessIdToSessionId");
+     }
+ 
+     if (currentSessionId == sessionId)
+@@ -337,7 +337,7 @@ DWORD GrantRemoteSessionDesktopAccess(
+         LogInfo("Already running in the specified session");
+         status = GrantDesktopAccess(accountName, systemName);
+         if (ERROR_SUCCESS != status)
+-            perror2(status, "GrantDesktopAccess");
++            win_perror2(status, "GrantDesktopAccess");
+ 
+         return status;
+     }
+@@ -346,7 +346,7 @@ DWORD GrantRemoteSessionDesktopAccess(
+     {
+         if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &token))
+         {
+-            return perror("OpenProcessToken");
++            return win_perror("OpenProcessToken");
+         }
+     }
+ 
+@@ -358,7 +358,7 @@ DWORD GrantRemoteSessionDesktopAccess(
+         TokenPrimary,
+         &tokenDuplicate))
+     {
+-        status = perror("DuplicateTokenEx");
++        status = win_perror("DuplicateTokenEx");
+         goto cleanup;
+     }
+ 
+@@ -367,13 +367,13 @@ DWORD GrantRemoteSessionDesktopAccess(
+ 
+     if (!SetTokenInformation(token, TokenSessionId, &sessionId, sizeof(sessionId)))
+     {
+-        status = perror("SetTokenInformation");
++        status = win_perror("SetTokenInformation");
+         goto cleanup;
+     }
+ 
+     if (!GetModuleFileName(NULL, fullPath, RTL_NUMBER_OF(fullPath) - 1))
+     {
+-        status = perror("GetModuleFileName");
++        status = win_perror("GetModuleFileName");
+         goto cleanup;
+     }
+ 
+@@ -401,7 +401,7 @@ DWORD GrantRemoteSessionDesktopAccess(
+         &si,
+         &pi))
+     {
+-        status = perror("CreateProcessAsUser");
++        status = win_perror("CreateProcessAsUser");
+         goto cleanup;
+     }
+ 
+@@ -416,7 +416,7 @@ DWORD GrantRemoteSessionDesktopAccess(
+         }
+         else
+         {
+-            status = perror("WaitForSingleObject");
++            status = win_perror("WaitForSingleObject");
+         }
+     }
+ 
+@@ -461,7 +461,7 @@ HANDLE GetLoggedOnUserToken(
+         TokenPrimary,
+         &duplicateToken))
+     {
+-        perror("DuplicateTokenEx");
++        win_perror("DuplicateTokenEx");
+         CloseHandle(userToken);
+         return NULL;
+     }
+@@ -470,14 +470,14 @@ HANDLE GetLoggedOnUserToken(
+ 
+     if (!ImpersonateLoggedOnUser(duplicateToken))
+     {
+-        perror("ImpersonateLoggedOnUser");
++        win_perror("ImpersonateLoggedOnUser");
+         CloseHandle(duplicateToken);
+         return NULL;
+     }
+ 
+     if (!GetUserName(userName, &cchUserName))
+     {
+-        perror("GetUserName");
++        win_perror("GetUserName");
+         userName[0] = 0;
+     }
+ 
+@@ -528,7 +528,7 @@ DWORD CreatePipedProcessAsUser(
+     LogDebug("user '%s', cmd '%s', interactive %d", userName, commandLine, interactive);
+ 
+     if (!ProcessIdToSessionId(GetCurrentProcessId(), &currentSessionId))
+-        return perror("get current session id");
++        return win_perror("get current session id");
+ 
+     consoleSessionId = WTSGetActiveConsoleSessionId();
+     if (0xFFFFFFFF == consoleSessionId)
+@@ -544,7 +544,7 @@ DWORD CreatePipedProcessAsUser(
+         HANDLE duplicateToken;
+ 
+         if (!OpenProcessToken(GetCurrentProcess(), MAXIMUM_ALLOWED, &userToken))
+-            return perror("open current process token");
++            return win_perror("open current process token");
+ 
+         // create a new primary token
+         if (!DuplicateTokenEx(
+@@ -555,7 +555,7 @@ DWORD CreatePipedProcessAsUser(
+             TokenPrimary,
+             &duplicateToken))
+         {
+-            status = perror("create new primary token for current user");
++            status = win_perror("create new primary token for current user");
+             CloseHandle(userToken);
+             return status;
+         }
+@@ -589,7 +589,7 @@ DWORD CreatePipedProcessAsUser(
+                 LOGON32_PROVIDER_DEFAULT,
+                 &userToken))
+             {
+-                status = perror("LogonUser");
++                status = win_perror("LogonUser");
+                 goto cleanup;
+             }
+         }
+@@ -601,7 +601,7 @@ DWORD CreatePipedProcessAsUser(
+ 
+     if (!SetTokenInformation(userToken, TokenSessionId, &consoleSessionId, sizeof(consoleSessionId)))
+     {
+-        status = perror("set token session id");
++        status = win_perror("set token session id");
+         goto cleanup;
+     }
+ 
+@@ -614,12 +614,12 @@ DWORD CreatePipedProcessAsUser(
+         /*
+         status = GrantRemoteSessionDesktopAccess(consoleSessionId, userName, NULL);
+         if (ERROR_SUCCESS != status)
+-        perror2(status, "GrantRemoteSessionDesktopAccess");*/
++        win_perror2(status, "GrantRemoteSessionDesktopAccess");*/
+     }
+ 
+     if (!CreateEnvironmentBlock(&environment, userToken, TRUE))
+     {
+-        status = perror("CreateEnvironmentBlock");
++        status = win_perror("CreateEnvironmentBlock");
+         goto cleanup;
+     }
+ 
+@@ -653,7 +653,7 @@ DWORD CreatePipedProcessAsUser(
+         &si,
+         &pi))
+     {
+-        status = perror("CreateProcessAsUser");
++        status = win_perror("CreateProcessAsUser");
+         goto cleanup;
+     }
+ 
+@@ -694,7 +694,7 @@ DWORD CreateNormalProcessAsUser(
+         process);
+ 
+     if (ERROR_SUCCESS != status)
+-        perror2(status, "CreatePipedProcessAsUser");
++        win_perror2(status, "CreatePipedProcessAsUser");
+ 
+     return status;
+ }
+@@ -715,7 +715,7 @@ DWORD CreateNormalProcessAsCurrentUser(
+         process);
+ 
+     if (ERROR_SUCCESS != status)
+-        perror2(status, "CreatePipedProcessAsCurrentUser");
++        win_perror2(status, "CreatePipedProcessAsCurrentUser");
+ 
+     return status;
+ }
+@@ -784,7 +784,7 @@ DWORD CreatePublicPipeSecurityDescriptor(
+         0, 0, 0, 0, 0, 0, 0,
+         &everyoneSid))
+     {
+-        return perror("AllocateAndInitializeSid");
++        return win_perror("AllocateAndInitializeSid");
+     }
+ 
+     *acl = NULL;
+@@ -804,7 +804,7 @@ DWORD CreatePublicPipeSecurityDescriptor(
+ 
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "SetEntriesInAcl");
++        win_perror2(status, "SetEntriesInAcl");
+         goto cleanup;
+     }
+ 
+@@ -812,20 +812,20 @@ DWORD CreatePublicPipeSecurityDescriptor(
+     *securityDescriptor = (SECURITY_DESCRIPTOR *)LocalAlloc(LPTR, SECURITY_DESCRIPTOR_MIN_LENGTH);
+     if (*securityDescriptor == NULL)
+     {
+-        perror("LocalAlloc");
++        win_perror("LocalAlloc");
+         goto cleanup;
+     }
+ 
+     if (!InitializeSecurityDescriptor(*securityDescriptor, SECURITY_DESCRIPTOR_REVISION))
+     {
+-        status = perror("InitializeSecurityDescriptor");
++        status = win_perror("InitializeSecurityDescriptor");
+         goto cleanup;
+     }
+ 
+     // Add the ACL to the security descriptor.
+     if (!SetSecurityDescriptorDacl(*securityDescriptor, TRUE, *acl, FALSE))
+     {
+-        status = perror("SetSecurityDescriptorDacl");
++        status = win_perror("SetSecurityDescriptorDacl");
+         goto cleanup;
+     }
+ 
+diff --git a/src/log.c b/src/log.c
+index 845f230..67d5f53 100644
+--- a/src/log.c
++++ b/src/log.c
+@@ -22,8 +22,8 @@
+ #include <windows.h>
+ #include <stdlib.h>
+ #include <strsafe.h>
+-#include <Lmcons.h>
+-#include <Shlwapi.h>
++#include <lmcons.h>
++#include <shlwapi.h>
+ 
+ #include "utf8-conv.h"
+ #include "log.h"
+@@ -202,7 +202,7 @@ void LogInit(IN const WCHAR *logDir OPTIONAL, IN const WCHAR *logName)
+         if (GetLastError() != ERROR_ALREADY_EXISTS)
+         {
+             LogStart(NULL);
+-            perror("CreateDirectory");
++            win_perror("CreateDirectory");
+             LogWarning("failed to create %s\n", logDir);
+             goto fallback;
+         }
+@@ -232,7 +232,7 @@ fallback:
+     len = UNLEN;
+     if (!GetUserName(buffer, &len))
+     {
+-        perror("GetUserName");
++        win_perror("GetUserName");
+         LogInfo("Running as user: <UNKNOWN>, process ID: %d\n", GetCurrentProcessId());
+     }
+     else
+@@ -512,15 +512,15 @@ cleanup:
+     LeaveCriticalSection(&g_Lock);
+ }
+ 
+-// Like _perror, but takes explicit error code. For cases when previous call doesn't set LastError.
+-DWORD _perror2(IN const char *functionName, IN DWORD errorCode, IN const WCHAR *prefix)
++// Like _win_perror, but takes explicit error code. For cases when previous call doesn't set LastError.
++DWORD _win_perror2(IN const char *functionName, IN DWORD errorCode, IN const WCHAR *prefix)
+ {
+     SetLastError(errorCode);
+-    return _perror(functionName, prefix);
++    return _win_perror(functionName, prefix);
+ }
+ 
+-// Helper function to report errors. Similar to perror, but uses GetLastError() instead of errno.
+-DWORD _perror(IN const char *functionName, IN const WCHAR *prefix)
++// Helper function to report errors. Similar to win_perror, but uses GetLastError() instead of errno.
++DWORD _win_perror(IN const char *functionName, IN const WCHAR *prefix)
+ {
+     size_t charCount;
+     WCHAR *message = NULL;
+diff --git a/src/pipe-server.c b/src/pipe-server.c
+index 7d271e4..294df21 100644
+--- a/src/pipe-server.c
++++ b/src/pipe-server.c
+@@ -74,7 +74,7 @@ struct THREAD_PARAM
+ };
+ 
+ // Initialize data for a newly connected client.
+-DWORD QpsConnectClient(
++static DWORD QpsConnectClient(
+     IN  PIPE_SERVER Server,
+     IN  LONGLONG ClientId,
+     IN  HANDLE WritePipe,
+@@ -83,7 +83,7 @@ DWORD QpsConnectClient(
+ 
+ // Disconnect can be called from inside worker threads, we don't want to
+ // wait for them in that case.
+-void QpsDisconnectClientInternal(
++static void QpsDisconnectClientInternal(
+     IN  PIPE_SERVER Server,
+     IN  LONGLONG ClientId,
+     IN  BOOL WriterExiting,
+@@ -311,7 +311,7 @@ static DWORD WINAPI QpsReaderThread(
+         // reading will fail even if blocked when we call CancelIo() from QpsDisconnectClient
+         if (!ReadFile(pipe, buffer, server->PipeBufferSize, &transferred, NULL)) // this can block
+         {
+-            perror("ReadFile");
++            win_perror("ReadFile");
+             LogWarning("[%lld] read failed", client->Id);
+             // disconnect the client if the read failed because of other errors (broken pipe etc), it's harmless if we're already disconnecting
+             QpsReleaseClient(server, client);
+@@ -407,7 +407,7 @@ static DWORD WINAPI QpsWriterThread(
+             // writing will fail even if blocked when we call CancelIo() from QpsDisconnectClient
+             if (!QioWriteBuffer(pipe, data, (DWORD)size)) // this can block
+             {
+-                perror("QioWriteBuffer");
++                win_perror("QioWriteBuffer");
+                 LogWarning("[%lld] write failed", client->Id);
+                 QpsReleaseClient(server, client);
+                 QpsDisconnectClientInternal(server, param->ClientId, TRUE, FALSE);
+@@ -562,7 +562,7 @@ static void QpsDisconnectClientInternal(
+         {
+             LogWarning("[%lld] writer thread didn't terminate in time, canceling write", ClientId);
+             if (!CancelIo(client->WritePipe)) // this will abort a blocking operation
+-                perror("CancelIo(write)");
++                win_perror("CancelIo(write)");
+         }
+ 
+         // wait for the writer thread cleanup
+@@ -584,7 +584,7 @@ static void QpsDisconnectClientInternal(
+         // wait for the reader thread to exit
+         LogVerbose("[%lld] (%p) canceling read", ClientId, client);
+         if (!CancelIo(client->ReadPipe)) // this will abort a blocking operation
+-            perror("CancelIo(read)");
++            win_perror("CancelIo(read)");
+ 
+         if (WaitForSingleObject(client->ReaderThread, 100) != WAIT_OBJECT_0)
+         {
+@@ -646,7 +646,7 @@ DWORD QpsMainLoop(
+         // prepare the read pipe
+         if (!GetNamedPipeClientProcessId(writePipe, &pid))
+         {
+-            return perror("GetNamedPipeClientProcessId");
++            return win_perror("GetNamedPipeClientProcessId");
+         }
+ 
+         clientId = QpsAllocateClientId(Server);
+@@ -665,12 +665,12 @@ DWORD QpsMainLoop(
+         cbPipeName = (DWORD) (wcslen(pipeName) + 1) * sizeof(WCHAR);
+         if (!WriteFile(writePipe, &cbPipeName, sizeof(cbPipeName), &written, NULL))
+         {
+-            return perror("writing size of inbound pipe name");
++            return win_perror("writing size of inbound pipe name");
+         }
+ 
+         if (!WriteFile(writePipe, pipeName, cbPipeName, &written, NULL))
+         {
+-            return perror("writing name of inbound pipe");
++            return win_perror("writing name of inbound pipe");
+         }
+ 
+         do
+@@ -856,11 +856,11 @@ DWORD QpsConnect(
+         if (*ReadPipe == INVALID_HANDLE_VALUE)
+         {
+             if (ERROR_PIPE_BUSY != status)
+-                return perror("open read pipe");
++                return win_perror("open read pipe");
+ 
+             // Wait until the pipe is available.
+             if (!WaitNamedPipe(PipeName, NMPWAIT_WAIT_FOREVER))
+-                return perror("WaitNamedPipe(read)");
++                return win_perror("WaitNamedPipe(read)");
+         }
+     } while (*ReadPipe == INVALID_HANDLE_VALUE);
+ 
+@@ -868,13 +868,13 @@ DWORD QpsConnect(
+     if (!ReadFile(*ReadPipe, &cbWritePipeName, sizeof(cbWritePipeName), &read, NULL))
+     {
+         CloseHandle(*ReadPipe);
+-        return perror("reading size of write pipe name");
++        return win_perror("reading size of write pipe name");
+     }
+ 
+     if (!ReadFile(*ReadPipe, writePipeName, cbWritePipeName, &read, NULL))
+     {
+         CloseHandle(*ReadPipe);
+-        return perror("reading write pipe name");
++        return win_perror("reading write pipe name");
+     }
+ 
+     // Try to open the write pipe; wait for it, if necessary.
+@@ -892,7 +892,7 @@ DWORD QpsConnect(
+         // This pipe may be not created yet
+         status = GetLastError();
+         if ((*WritePipe == INVALID_HANDLE_VALUE) && (ERROR_FILE_NOT_FOUND != status))
+-            return perror("open write pipe");
++            return win_perror("open write pipe");
+ 
+         Sleep(10);
+     } while (*WritePipe == INVALID_HANDLE_VALUE);
+diff --git a/src/qubes-io.c b/src/qubes-io.c
+index f01c03c..0ba233b 100644
+--- a/src/qubes-io.c
++++ b/src/qubes-io.c
+@@ -31,7 +31,7 @@ BOOL QioWriteBuffer(IN HANDLE file, IN const void *buffer, IN DWORD bufferSize)
+     {
+         if (!WriteFile(file, (BYTE *) buffer + cbWrittenTotal, bufferSize - cbWrittenTotal, &cbWritten, NULL))
+         {
+-            perror("WriteFile");
++            win_perror("WriteFile");
+             return FALSE;
+         }
+         cbWrittenTotal += cbWritten;
+@@ -48,7 +48,7 @@ BOOL QioReadBuffer(IN HANDLE file, OUT void *buffer, IN DWORD bufferSize)
+     {
+         if (!ReadFile(file, (BYTE *)buffer + cbReadTotal, bufferSize - cbReadTotal, &cbRead, NULL))
+         {
+-            perror("ReadFile");
++            win_perror("ReadFile");
+             return FALSE;
+         }
+ 
+diff --git a/src/qubes-string.c b/src/qubes-string.c
+index 9c458b4..72059c4 100644
+--- a/src/qubes-string.c
++++ b/src/qubes-string.c
+@@ -19,7 +19,7 @@
+  *
+  */
+ 
+-#include <Windows.h>
++#include <windows.h>
+ #include <strsafe.h>
+ 
+ #include "qubes-string.h"
+diff --git a/src/service.c b/src/service.c
+index 07ae959..d5d5fc8 100644
+--- a/src/service.c
++++ b/src/service.c
+@@ -41,8 +41,8 @@ typedef struct _SERVICE_CONTEXT
+ // since ServiceMain doesn't take any context parameter.
+ PSERVICE_CONTEXT g_Service = NULL;
+ 
+-void SvcStop(void);
+-void WINAPI SvcMain(DWORD argc, WCHAR *argv[]);
++static void SvcStop(void);
++static void WINAPI SvcMain(DWORD argc, WCHAR *argv[]);
+ 
+ static void SvcSetState(
+     IN DWORD state,
+@@ -60,7 +60,7 @@ static void SvcSetState(
+         g_Service->Status.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN | g_Service->AcceptedControlCodes;
+ 
+     if (!SetServiceStatus(g_Service->StatusHandle, &g_Service->Status))
+-        perror("SetServiceStatus");
++        win_perror("SetServiceStatus");
+ }
+ 
+ DWORD SvcMainLoop(
+@@ -98,7 +98,7 @@ DWORD SvcMainLoop(
+ 
+     LogDebug("entering dispatcher loop");
+     if (!StartServiceCtrlDispatcher(serviceTable))
+-        return perror("StartServiceCtrlDispatcher");
++        return win_perror("StartServiceCtrlDispatcher");
+ 
+     LogDebug("exiting");
+     return ERROR_SUCCESS;
+@@ -142,7 +142,7 @@ static DWORD WINAPI SvcCtrlHandlerEx(
+         status = g_Service->HandlerFunction(controlCode, eventType, eventData, context);
+         if (NO_ERROR != status)
+         {
+-            perror2(status, "user notification handler");
++            win_perror2(status, "user notification handler");
+             SvcStop();
+         }
+         break;
+@@ -160,7 +160,7 @@ static void WINAPI SvcMain(DWORD argc, WCHAR *argv[])
+     g_Service->StatusHandle = RegisterServiceCtrlHandlerEx(g_Service->Name, SvcCtrlHandlerEx, g_Service);
+     if (!g_Service->StatusHandle)
+     {
+-        perror("RegisterServiceCtrlHandlerEx");
++        win_perror("RegisterServiceCtrlHandlerEx");
+         return;
+     }
+ 
+@@ -170,7 +170,7 @@ static void WINAPI SvcMain(DWORD argc, WCHAR *argv[])
+     g_Service->StopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+     if (!g_Service->StopEvent)
+     {
+-        status = perror("Create stop event");
++        status = win_perror("Create stop event");
+         SvcSetState(SERVICE_STOPPED, status);
+         return;
+     }
+@@ -179,7 +179,7 @@ static void WINAPI SvcMain(DWORD argc, WCHAR *argv[])
+     g_Service->WorkerThread = CreateThread(NULL, 0, g_Service->WorkerFunction, &g_Service->WorkerContext, 0, NULL);
+     if (!g_Service->WorkerThread)
+     {
+-        status = perror("Create worker thread");
++        status = win_perror("Create worker thread");
+         CloseHandle(g_Service->StopEvent);
+         SvcSetState(SERVICE_STOPPED, status);
+         return;
+@@ -222,7 +222,7 @@ DWORD SvcCreate(
+     scm = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+     if (!scm)
+     {
+-        status = perror("OpenSCManager");
++        status = win_perror("OpenSCManager");
+         goto cleanup;
+     }
+ 
+@@ -243,7 +243,7 @@ DWORD SvcCreate(
+ 
+     if (!service)
+     {
+-        status = perror("CreateService");
++        status = win_perror("CreateService");
+         goto cleanup;
+     }
+ 
+@@ -275,20 +275,20 @@ DWORD SvcDelete(
+     scm = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+     if (!scm)
+     {
+-        status = perror("OpenSCManager");
++        status = win_perror("OpenSCManager");
+         goto cleanup;
+     }
+ 
+     service = OpenService(scm, serviceName, SERVICE_STOP | SERVICE_QUERY_STATUS | DELETE);
+     if (!service)
+     {
+-        status = perror("OpenService");
++        status = win_perror("OpenService");
+         goto cleanup;
+     }
+ 
+     if (!DeleteService(service))
+     {
+-        status = perror("DeleteService");
++        status = win_perror("DeleteService");
+         goto cleanup;
+     }
+ 
+diff --git a/src/utf8-conv.c b/src/utf8-conv.c
+index 9c8da02..2be3d4f 100644
+--- a/src/utf8-conv.c
++++ b/src/utf8-conv.c
+@@ -19,7 +19,7 @@
+  *
+  */
+ 
+-#include <Windows.h>
++#include <windows.h>
+ #include <stdlib.h>
+ #include <strsafe.h>
+ 

@@ -1,0 +1,18 @@
+diff --git a/watchdog/watchdog.c b/watchdog/watchdog.c
+index 5fd2f4c..4ac5c88 100644
+--- a/watchdog/watchdog.c
++++ b/watchdog/watchdog.c
+@@ -406,11 +406,11 @@ DWORD WINAPI ControlHandlerEx(IN DWORD controlCode, IN DWORD eventType, IN void
+         LogInfo("stopping...");
+         SetServiceStatus(g_StatusHandle, &g_Status);
+         break;
+-
++/*  looks like there is no necessary to restart qga on session change, disable it.
+     case SERVICE_CONTROL_SESSIONCHANGE:
+         SessionChange(eventType, (WTSSESSION_NOTIFICATION*) eventData);
+         break;
+-
++*/
+     default:
+         LogDebug("code 0x%x, event 0x%x", controlCode, eventType);
+         break;

@@ -1,0 +1,105 @@
+diff --git a/Makefile b/Makefile
+index 8b9cdc6..9fe7f8b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -17,8 +17,38 @@ $(FILES): %-$(PVDRIVERS_VERSION).tar:
+ 	grep $@ sources|sed 's:$@:$@.UNTRUSTED:' | sha512sum -c -
+ 	mv $@.UNTRUSTED $@
+ 
+-$(info $(FILES))
+-$(info $(URLS))
+ get-sources: $(FILES)
+ get-sources:
+ 	git submodule update --init --recursive
++
++verify-sources:
++	@true
++
++OUTDIR = $(PWD)/bin/$(ARCH)
++
++all: $(OUTDIR) $(FILES_UPSTREAM:%.tar=%/.unpacked) $(OUTDIR)/xencontrol.dll $(OUTDIR)/libxenvchan.dll include/xencontrol.h include/xeniface_ioctls.h
++
++CFLAGS += -I . -I $(PWD)/include -I$(PWD)/xeniface/include  -I $(PWD)/$(ARCH) -I $(DDKPATH) -std=c11 -fgnu89-inline -DUNICODE -D_UNICODE $(DEBUG) -mwindows -D_WIN32_WINNT=0x0600
++LDFLAGS += -L $(PWD)/$(ARCH) -L $(PWD)/xeniface/xeniface/$(ARCH) -lxencontrol -lversion -lshlwapi -lwtsapi32 -luserenv -liphlpapi -lwsock32 -lsetupapi -lrpcrt4 -lole32 -lntdll -luuid -lcomctl32 -lgdi32 -lwinmm -Wl,--as-needed -Wl,--no-insert-timestamp
++
++$(OUTDIR):
++	mkdir -p $(OUTDIR)
++
++$(PWD)/xeniface/xeniface/$(ARCH)/xencontrol.dll:
++	cd xeniface/src/xencontrol/ && \
++    $(CC) xencontrol.c -lsetupapi -I ../../include -DXENCONTROL_EXPORTS -DUNICODE -shared -o $@
++
++$(OUTDIR)/xencontrol.dll: $(PWD)/xeniface/xeniface/$(ARCH)/xencontrol.dll
++	cp $^ $@
++
++$(OUTDIR)/libxenvchan.dll:
++	cd src/libxenvchan && \
++	$(CC) *.c $(CFLAGS) $(LDFLAGS) -DXENVCHAN_EXPORTS -D_NTOS_ -shared -o $@
++
++%/.unpacked: %-$(PVDRIVERS_VERSION).tar
++	tar xvf $< -C $*
++	cp $*/$*/$(ARCH)/* $(OUTDIR)/
++	touch $@
++
++include/%.h: xeniface/include/%.h
++	cp $^ $@
+diff --git a/src/libxenvchan/init.c b/src/libxenvchan/init.c
+index 281f415..429358e 100644
+--- a/src/libxenvchan/init.c
++++ b/src/libxenvchan/init.c
+@@ -67,7 +67,7 @@
+ 
+ #define snprintf _snprintf
+ 
+-static void _Log(XENCONTROL_LOG_LEVEL logLevel, PCHAR function, struct libxenvchan *ctrl, PWCHAR format, ...)
++static void _Log(XENCONTROL_LOG_LEVEL logLevel, LPCSTR function, struct libxenvchan *ctrl, PWCHAR format, ...)
+ {
+     va_list args;
+ 
+@@ -82,7 +82,11 @@ static void _Log(XENCONTROL_LOG_LEVEL logLevel, PCHAR function, struct libxenvch
+     va_end(args);
+ }
+ 
++#ifdef __MINGW32__
++#define Log(level, msg, ...) _Log(level, __FUNCTION__, ctrl, L"(%p) " L##msg L"\n", ctrl, ##__VA_ARGS__)
++#else
+ #define Log(level, msg, ...) _Log(level, __FUNCTION__, ctrl, L"(%p) " L##msg L"\n", ctrl, __VA_ARGS__)
++#endif
+ 
+ static int init_gnt_srv(struct libxenvchan *ctrl, USHORT domain)
+ {
+diff --git a/src/libxenvchan/io.c b/src/libxenvchan/io.c
+index 16019be..29e334c 100644
+--- a/src/libxenvchan/io.c
++++ b/src/libxenvchan/io.c
+@@ -45,7 +45,7 @@
+ #define PAGE_SIZE 4096
+ #endif
+ 
+-static void _Log(XENCONTROL_LOG_LEVEL logLevel, PCHAR function, struct libxenvchan *ctrl, PWCHAR format, ...)
++static void _Log(XENCONTROL_LOG_LEVEL logLevel, LPCSTR function, struct libxenvchan *ctrl, PWCHAR format, ...)
+ {
+     va_list args;
+ 
+@@ -60,15 +60,21 @@ static void _Log(XENCONTROL_LOG_LEVEL logLevel, PCHAR function, struct libxenvch
+     va_end(args);
+ }
+ 
++#ifdef __MINGW32__
++#define Log(level, msg, ...) _Log(level, __FUNCTION__, ctrl, L"(%p) " L##msg L"\n", ctrl, ##__VA_ARGS__)
++#else
+ #define Log(level, msg, ...) _Log(level, __FUNCTION__, ctrl, L"(%p) " L##msg L"\n", ctrl, __VA_ARGS__)
++#endif
+ 
+ #define inline __inline
+ #define xen_mb()  _ReadWriteBarrier()
+ #define xen_rmb() _ReadBarrier()
+ #define xen_wmb() _WriteBarrier()
+ 
++#ifndef __MINGW32__
+ #define __sync_or_and_fetch(a, b)   ((*(a)) |= (b))
+ #define __sync_fetch_and_and        InterlockedAnd8
++#endif
+ 
+ static inline uint32_t rd_prod(struct libxenvchan *ctrl)
+ {

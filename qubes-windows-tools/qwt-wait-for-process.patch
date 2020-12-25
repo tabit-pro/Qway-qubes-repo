@@ -1,0 +1,8 @@
+--- qubes-windows-tools-4.1/qubes-core-agent-windows-mm_a2aea339/src/qrexec-services/start-app.ps1	2019-06-20 03:55:59.000000000 +0300
++++ qubes-windows-tools-4.1.new/qubes-core-agent-windows-mm_a2aea339/src/qrexec-services/start-app.ps1	2020-09-29 12:50:49.396310209 +0300
+@@ -27,4 +27,4 @@ $desktopBaseName = $args[0]
+ 
+ $desktopFullName = Get-ItemProperty -Path "$RegistryMapPath\$RegistryMapKey" -Name $desktopBaseName
+ 
+-Invoke-Item $desktopFullName.$desktopBaseName
++Start-Process -Wait $desktopFullName.$desktopBaseName

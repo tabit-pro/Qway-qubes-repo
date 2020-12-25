@@ -1,0 +1,159 @@
+diff --git a/client/qdb-client.c b/client/qdb-client.c
+index b8c992a..25f72ab 100644
+--- a/client/qdb-client.c
++++ b/client/qdb-client.c
+@@ -2,7 +2,7 @@
+ #include <stdlib.h>
+ #ifdef WIN32
+ #include <windows.h>
+-#include <Lmcons.h>
++#include <lmcons.h>
+ #include <strsafe.h>
+ #include <log.h>
+ #include <qubes-io.h>
+@@ -74,7 +74,7 @@ static int connect_to_daemon(struct qdb_handle *qh) {
+         WCHAR user_name[user_name_len];
+ 
+         if (!GetUserName(user_name, &user_name_len)) {
+-            perror("GetUserName");
++            win_perror("GetUserName");
+             return 0;
+         }
+         StringCbPrintf(pipe_name, sizeof(pipe_name), QDB_DAEMON_LOCAL_PATH, user_name);
+@@ -90,7 +90,7 @@ static int connect_to_daemon(struct qdb_handle *qh) {
+     status = QpsConnect(pipe_name, &qh->read_pipe, &qh->write_pipe);
+     if (status != ERROR_SUCCESS)
+     {
+-        perror2(status, "connect to server");
++        win_perror2(status, "connect to server");
+         return 0;
+     }
+ 
+@@ -162,7 +162,7 @@ static int send_command_to_daemon(qdb_handle_t h, struct qdb_hdr *hdr, void *dat
+             else {
+                 /* try again */
+                 if (!QioWriteBuffer(h->write_pipe, hdr, sizeof(*hdr))) {
+-                    perror("write to daemon");
++                    win_perror("write to daemon");
+                     return 0;
+                 }
+                 else
+@@ -170,14 +170,14 @@ static int send_command_to_daemon(qdb_handle_t h, struct qdb_hdr *hdr, void *dat
+             }
+         } else {
+             /* other write error */
+-            perror("write to daemon");
++            win_perror("write to daemon");
+             return 0;
+         }
+     }
+     if (data && !QioWriteBuffer(h->write_pipe, data, hdr->data_len)) {
+         /* no recovery after header send, daemon most likely closed connection
+          * in reaction to our data */
+-        perror("write to daemon");
++        win_perror("write to daemon");
+         return 0;
+     }
+     return 1;
+diff --git a/daemon/db-core.c b/daemon/db-core.c
+index 5e65d26..052f541 100644
+--- a/daemon/db-core.c
++++ b/daemon/db-core.c
+@@ -5,6 +5,7 @@
+ #include <unistd.h>
+ #else
+ #define strdup _strdup
++#include <windows.h>
+ #include <strsafe.h>
+ #endif
+ 
+diff --git a/daemon/db-daemon.c b/daemon/db-daemon.c
+index 7c90c2f..ebe30c1 100644
+--- a/daemon/db-daemon.c
++++ b/daemon/db-daemon.c
+@@ -13,7 +13,7 @@
+ #else
+ #include <windows.h>
+ #include <sddl.h>
+-#include <Lmcons.h>
++#include <lmcons.h>
+ #include <strsafe.h>
+ 
+ #include <log.h>
+@@ -168,7 +168,7 @@ int mainloop(struct db_daemon_data *d) {
+     // Create the thread that will handle client pipes
+     pipe_thread = CreateThread(NULL, 0, pipe_thread_main, d->pipe_server, 0, NULL);
+     if (!pipe_thread) {
+-        perror("CreateThread(main pipe thread)");
++        win_perror("CreateThread(main pipe thread)");
+         return 0;
+     }
+ 
+@@ -189,7 +189,7 @@ int mainloop(struct db_daemon_data *d) {
+         case 0: {
+             // pipe thread terminated, abort
+             GetExitCodeThread(pipe_thread, &status);
+-            perror2(status, "pipe thread");
++            win_perror2(status, "pipe thread");
+             return 0;
+         }
+ 
+@@ -238,7 +238,7 @@ int mainloop(struct db_daemon_data *d) {
+ 
+         default: {
+             // wait failed
+-            perror("WaitForMultipleObjects");
++            win_perror("WaitForMultipleObjects");
+             return 0;
+         }
+         }
+@@ -258,7 +258,7 @@ DWORD WINAPI pipe_thread_client(PVOID param) {
+         // blocking read
+         status = QpsRead(p->daemon->pipe_server, p->id, &hdr, sizeof(hdr));
+         if (ERROR_SUCCESS != status) {
+-            perror("QpsRead");
++            win_perror("QpsRead");
+             LogWarning("read from client %lu failed", p->id);
+             QpsDisconnectClient(p->daemon->pipe_server, p->id);
+             free(param);
+@@ -289,7 +289,7 @@ void client_connected_callback(PIPE_SERVER server, LONGLONG id, PVOID context) {
+     param->daemon = context;
+     client_thread = CreateThread(NULL, 0, pipe_thread_client, param, 0, NULL);
+     if (!client_thread) {
+-        perror("CreateThread");
++        win_perror("CreateThread");
+         free(param);
+         return;
+     }
+@@ -315,7 +315,7 @@ int init_server_socket(struct db_daemon_data *d) {
+         SDDL_REVISION_1,
+         &sd,
+         NULL)) {
+-        perror("ConvertStringSecurityDescriptorToSecurityDescriptor");
++        win_perror("ConvertStringSecurityDescriptorToSecurityDescriptor");
+         return 0;
+     }
+ 
+diff --git a/windows/Makefile b/windows/Makefile
+new file mode 100644
+index 0000000..7fc79ce
+--- /dev/null
++++ b/windows/Makefile
+@@ -0,0 +1,17 @@
++OUTDIR = bin/$(ARCH)
++CFLAGS += -I../include -std=c11 -fgnu89-inline -DUNICODE -D_UNICODE
++LDFLAGS += -L$(OUTDIR) -lwindows-utils
++
++all: $(OUTDIR) $(OUTDIR)/qubesdb-client.dll $(OUTDIR)/qubesdb-cmd.exe $(OUTDIR)/qubesdb-daemon.exe
++
++$(OUTDIR):
++	mkdir -p $@
++
++$(OUTDIR)/qubesdb-client.dll: ../client/qdb-client.c
++	$(CC) $^ $(CFLAGS) $(LDFLAGS) -lwindows-utils -DQUBESDBCLIENT_API -shared -DWIN32 -o $@
++
++$(OUTDIR)/qubesdb-cmd.exe: $(OUTDIR)/qubesdb-client.dll ../client/qubesdb-cmd.c
++	$(CC) ../client/qubesdb-cmd.c  $(CFLAGS) $(LDFLAGS) -lwindows-utils -lqubesdb-client -DWIN32 -UUNICODE -U_UNICODE -mconsole -o $@
++
++$(OUTDIR)/qubesdb-daemon.exe: $(OUTDIR)/qubesdb-client.dll $(wildcard ../daemon/*.c)
++	$(CC) $(filter %.c,$^) $(CFLAGS) $(LDFLAGS) -UUNICODE -U_UNICODE -lwindows-utils -lqubesdb-client -lvchan -DWIN32 -o $@

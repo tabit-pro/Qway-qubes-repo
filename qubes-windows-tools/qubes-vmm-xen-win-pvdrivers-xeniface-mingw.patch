@@ -1,0 +1,65 @@
+diff --git a/include/xencontrol.h b/include/xencontrol.h
+index 4560bc6..2ef2e22 100644
+--- a/include/xencontrol.h
++++ b/include/xencontrol.h
+@@ -2,7 +2,11 @@
+ #define _XENCONTROL_H_
+ 
+ #include <windows.h>
++#ifdef __MINGW32__
++#include <stdarg.h>
++#else
+ #include <varargs.h>
++#endif
+ #include "xeniface_ioctls.h"
+ 
+ #ifdef XENCONTROL_EXPORTS
+diff --git a/src/xencontrol/xencontrol.c b/src/xencontrol/xencontrol.c
+index f55d0a2..1504ddf 100644
+--- a/src/xencontrol/xencontrol.c
++++ b/src/xencontrol/xencontrol.c
+@@ -1,6 +1,8 @@
+ #define INITGUID
+ #include <windows.h>
++#ifndef __MINGW32__
+ #include <winioctl.h>
++#endif
+ #include <setupapi.h>
+ #include <stdlib.h>
+ #include <assert.h>
+@@ -26,7 +28,7 @@ _Log(
+     IN  XENCONTROL_LOGGER *Logger,
+     IN  XENCONTROL_LOG_LEVEL LogLevel,
+     IN  XENCONTROL_LOG_LEVEL CurrentLogLevel,
+-    IN  PCHAR Function,
++    IN  LPCSTR Function,
+     IN  PWCHAR Format,
+     ...
+     )
+@@ -50,7 +52,7 @@ _Log(
+ static void
+ _LogMultiSz(
+     IN  PXENCONTROL_CONTEXT Xc,
+-    IN  PCHAR Caller,
++    IN  LPCSTR Caller,
+     IN  XENCONTROL_LOG_LEVEL Level,
+     IN  PCHAR MultiSz
+     )
+diff --git a/src/xencontrol/xencontrol_private.h b/src/xencontrol/xencontrol_private.h
+index 685bcfa..92609d9 100644
+--- a/src/xencontrol/xencontrol_private.h
++++ b/src/xencontrol/xencontrol_private.h
+@@ -4,8 +4,13 @@
+ #include <windows.h>
+ #include "xencontrol.h"
+ 
++#ifdef __MINGW32__
++#define Log(level, format, ...) \
++        _Log(Xc->Logger, level, Xc->LogLevel, __FUNCTION__, format, ##__VA_ARGS__)
++#else
+ #define Log(level, format, ...) \
+         _Log(Xc->Logger, level, Xc->LogLevel, __FUNCTION__, format, __VA_ARGS__)
++#endif
+ 
+ #define InitializeListHead(ListHead) ( \
+     (ListHead)->Flink = (ListHead)->Blink = (ListHead))

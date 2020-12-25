@@ -1,0 +1,27 @@
+diff -ruNp qubes-core-agent-windows-mm_a2aea339/src/qrexec-agent/qrexec-agent.c qubes-core-agent-windows-mm_a2aea339.new/src/qrexec-agent/qrexec-agent.c
+--- qubes-core-agent-windows-mm_a2aea339/src/qrexec-agent/qrexec-agent.c	2019-06-20 03:55:59.000000000 +0300
++++ qubes-core-agent-windows-mm_a2aea339.new/src/qrexec-agent/qrexec-agent.c	2020-01-21 18:20:22.111238978 +0300
+@@ -926,9 +926,9 @@ static DWORD HandleDaemonHello(struct ms
+ 
+     if (info.version != QREXEC_PROTOCOL_VERSION)
+     {
+-        LogError("incompatible protocol version (%d instead of %d)",
++        LogWarning("incompatible protocol version (%d instead of %d)",
+                  info.version, QREXEC_PROTOCOL_VERSION);
+-        return ERROR_INVALID_FUNCTION;
++        //return ERROR_INVALID_FUNCTION;
+     }
+ 
+     LogDebug("received protocol version %d", info.version);
+diff -ruNp qubes-core-agent-windows-mm_a2aea339/src/qrexec-wrapper/qrexec-wrapper.c qubes-core-agent-windows-mm_a2aea339.new/src/qrexec-wrapper/qrexec-wrapper.c
+--- qubes-core-agent-windows-mm_a2aea339/src/qrexec-wrapper/qrexec-wrapper.c	2019-06-20 03:55:59.000000000 +0300
++++ qubes-core-agent-windows-mm_a2aea339.new/src/qrexec-wrapper/qrexec-wrapper.c	2020-01-21 18:19:30.788120679 +0300
+@@ -552,7 +552,7 @@ DWORD HandleDataMessage(
+         if (peerInfo.version != QREXEC_PROTOCOL_VERSION)
+         {
+             LogWarning("incompatible protocol version (got %d, expected %d)", peerInfo.version, QREXEC_PROTOCOL_VERSION);
+-            return ERROR_INVALID_FUNCTION;
++            //return ERROR_INVALID_FUNCTION;
+         }
+ 
+         if (!child->IsVchanServer) // we're vchan client, reply with HELLO

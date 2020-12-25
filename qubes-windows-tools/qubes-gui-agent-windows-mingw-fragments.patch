@@ -1,0 +1,3849 @@
+diff -pruN a/gui-agent/main.c b/gui-agent/main.c
+--- a/gui-agent/main.c	2018-07-11 19:29:59.000000000 +0300
++++ b/gui-agent/main.c	2020-01-17 13:56:26.899126801 +0300
+@@ -72,7 +72,7 @@ HWND g_DesktopWindow = NULL;
+ 
+ HANDLE g_ShutdownEvent = NULL;
+ 
+-ULONG ProcessUpdatedWindows(IN HDC screenDC);
++static ULONG ProcessUpdatedWindows(IN HDC screenDC);
+ 
+ #ifdef DEBUG
+ // diagnostic: dump all watched windows
+@@ -199,19 +199,19 @@ ULONG AddWindowWithInfo(IN HWND window,
+     {
+         status = SendWindowCreate(entry);
+         if (ERROR_SUCCESS != status)
+-            return perror2(status, "SendWindowCreate");
++            return win_perror2(status, "SendWindowCreate");
+ 
+         // map (show) the window if it's visible and not minimized
+         if (!entry->IsIconic)
+         {
+             status = SendWindowMap(entry);
+             if (ERROR_SUCCESS != status)
+-                return perror2(status, "SendWindowMap");
++                return win_perror2(status, "SendWindowMap");
+         }
+ 
+         status = SendWindowName(window, entry->Caption);
+         if (ERROR_SUCCESS != status)
+-            return perror2(status, "SendWindowName");
++            return win_perror2(status, "SendWindowName");
+     }
+ 
+     if (windowEntry)
+@@ -236,13 +236,13 @@ ULONG RemoveWindow(IN OUT WINDOW_DATA *e
+     {
+         status = SendWindowUnmap(entry->WindowHandle);
+         if (ERROR_SUCCESS != status)
+-            return perror2(status, "SendWindowUnmap");
++            return win_perror2(status, "SendWindowUnmap");
+ 
+         if (entry->WindowHandle) // never destroy screen "window"
+         {
+             status = SendWindowDestroy(entry->WindowHandle);
+             if (ERROR_SUCCESS != status)
+-                return perror2(status, "SendWindowDestroy");
++                return win_perror2(status, "SendWindowDestroy");
+         }
+     }
+ 
+@@ -262,7 +262,7 @@ static BOOL CALLBACK AddWindowsProc(IN H
+     wi.cbSize = sizeof(wi);
+     if (!GetWindowInfo(window, &wi))
+     {
+-        perror("GetWindowInfo");
++        win_perror("GetWindowInfo");
+         LogWarning("Skipping window %x", window);
+         return TRUE;
+     }
+@@ -273,7 +273,7 @@ static BOOL CALLBACK AddWindowsProc(IN H
+     status = AddWindowWithInfo(window, &wi, NULL);
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "AddWindowWithInfo");
++        win_perror2(status, "AddWindowWithInfo");
+         return FALSE; // stop enumeration, fatal error occurred (should probably exit process at this point)
+     }
+ 
+@@ -306,7 +306,7 @@ static ULONG AddAllWindows(void)
+ 
+     // Enum top-level windows and add all that are not filtered.
+     if (!EnumWindows(AddWindowsProc, 0))
+-        return perror("EnumWindows");
++        return win_perror("EnumWindows");
+ 
+     return ERROR_SUCCESS;
+ }
+@@ -335,7 +335,7 @@ static ULONG ResetWatch(BOOL seamlessMod
+         if (ERROR_SUCCESS != status)
+         {
+             LeaveCriticalSection(&g_csWatchedWindows);
+-            return perror2(status, "RemoveWindow");
++            return win_perror2(status, "RemoveWindow");
+         }
+ 
+         entry = nextEntry;
+@@ -385,7 +385,7 @@ ULONG SetSeamlessMode(IN BOOL seamlessMo
+         // show the screen window
+         status = SendWindowMap(NULL);
+         if (ERROR_SUCCESS != status)
+-            return perror2(status, "SendWindowMap(NULL)");
++            return win_perror2(status, "SendWindowMap(NULL)");
+     }
+     else // seamless mode
+     {
+@@ -399,14 +399,14 @@ ULONG SetSeamlessMode(IN BOOL seamlessMo
+         // hide the screen window
+         status = SendWindowUnmap(NULL);
+         if (ERROR_SUCCESS != status)
+-            return perror2(status, "SendWindowUnmap(NULL)");
++            return win_perror2(status, "SendWindowUnmap(NULL)");
+     }
+ 
+     // ResetWatch removes all watched windows.
+     // If seamless mode is on, top-level windows are added to watch list.
+     status = ResetWatch(seamlessMode);
+     if (ERROR_SUCCESS != status)
+-        return perror2(status, "ResetWatch");
++        return win_perror2(status, "ResetWatch");
+ 
+     g_SeamlessMode = seamlessMode;
+ 
+@@ -445,7 +445,7 @@ BOOL ShouldAcceptWindow(IN HWND window,
+     {
+         if (!GetWindowInfo(window, &wi))
+         {
+-            perror("GetWindowInfo");
++            win_perror("GetWindowInfo");
+             return FALSE;
+         }
+         windowInfo = &wi;
+@@ -600,11 +600,11 @@ static ULONG UpdateWindowData(IN OUT WIN
+                 modalWindow->ModalParent = wd->WindowHandle;
+                 status = SendWindowUnmap(modalWindow->WindowHandle);
+                 if (ERROR_SUCCESS != status)
+-                    return perror2(status, "SendWindowUnmap");
++                    return win_perror2(status, "SendWindowUnmap");
+ 
+                 status = SendWindowMap(modalWindow);
+                 if (ERROR_SUCCESS != status)
+-                    return perror2(status, "SendWindowMap");
++                    return win_perror2(status, "SendWindowMap");
+             }
+         }
+     }
+@@ -715,7 +715,7 @@ static ULONG ProcessUpdatedWindows(IN HD
+ 
+                 if (ERROR_SUCCESS != status)
+                 {
+-                    perror2(status, "SendWindowDamageEvent");
++                    win_perror2(status, "SendWindowDamageEvent");
+                     goto cleanup;
+                 }
+             }
+@@ -728,7 +728,7 @@ static ULONG ProcessUpdatedWindows(IN HD
+ 
+             if (ERROR_SUCCESS != status)
+             {
+-                perror2(status, "SendWindowDamageEvent");
++                win_perror2(status, "SendWindowDamageEvent");
+                 goto cleanup;
+             }
+         }
+@@ -816,7 +816,7 @@ static ULONG WINAPI WatchForEvents(void)
+         signaledEvent = WaitForMultipleObjects(eventCount, watchedEvents, FALSE, INFINITE);
+         if (signaledEvent >= MAXIMUM_WAIT_OBJECTS)
+         {
+-            status = perror("WaitForMultipleObjects");
++            status = win_perror("WaitForMultipleObjects");
+             break;
+         }
+ 
+@@ -862,7 +862,7 @@ static ULONG WINAPI WatchForEvents(void)
+                             updatePending = TRUE;
+                             // fire a delayed damage event to ensure we won't miss anything in case no damages follow
+                             if (!timeSetEvent(1000 / g_MaxFps, 0, (LPTIMECALLBACK)watchedEvents[6], 0, TIME_ONESHOT | TIME_CALLBACK_EVENT_SET))
+-                                perror("timeSetEvent");
++                                win_perror("timeSetEvent");
+                         }
+                         continue;
+                     }
+@@ -881,7 +881,7 @@ static ULONG WINAPI WatchForEvents(void)
+             status = SetSeamlessMode(FALSE, FALSE);
+             if (ERROR_SUCCESS != status)
+             {
+-                perror2(status, "SetSeamlessMode(FALSE)");
++                win_perror2(status, "SetSeamlessMode(FALSE)");
+                 exitLoop = TRUE;
+             }
+             break;
+@@ -890,7 +890,7 @@ static ULONG WINAPI WatchForEvents(void)
+             status = SetSeamlessMode(TRUE, FALSE);
+             if (ERROR_SUCCESS != status)
+             {
+-                perror2(status, "SetSeamlessMode(TRUE)");
++                win_perror2(status, "SetSeamlessMode(TRUE)");
+                 exitLoop = TRUE;
+             }
+             break;
+@@ -900,7 +900,7 @@ static ULONG WINAPI WatchForEvents(void)
+             status = ChangeResolution(&screenDC, windowDamageEvent);
+             if (ERROR_SUCCESS != status)
+             {
+-                perror2(status, "ChangeResolution");
++                win_perror2(status, "ChangeResolution");
+                 exitLoop = TRUE;
+             }
+             break;
+@@ -936,7 +936,7 @@ static ULONG WINAPI WatchForEvents(void)
+                 status = QvRegisterWatchedDC(screenDC, windowDamageEvent);
+                 if (ERROR_SUCCESS != status)
+                 {
+-                    perror2(status, "QvRegisterWatchedDC");
++                    win_perror2(status, "QvRegisterWatchedDC");
+                     exitLoop = TRUE;
+                     break;
+                 }
+@@ -945,7 +945,7 @@ static ULONG WINAPI WatchForEvents(void)
+                 status = SendWindowCreate(NULL);
+                 if (ERROR_SUCCESS != status)
+                 {
+-                    perror2(status, "SendWindowCreate(NULL)");
++                    win_perror2(status, "SendWindowCreate(NULL)");
+                     exitLoop = TRUE;
+                     break;
+                 }
+@@ -953,7 +953,7 @@ static ULONG WINAPI WatchForEvents(void)
+                 status = SendScreenMfns();
+                 if (ERROR_SUCCESS != status)
+                 {
+-                    perror2(status, "SendScreenMfns");
++                    win_perror2(status, "SendScreenMfns");
+                     exitLoop = TRUE;
+                     break;
+                 }
+@@ -962,7 +962,7 @@ static ULONG WINAPI WatchForEvents(void)
+                 status = SetSeamlessMode(g_SeamlessMode, TRUE);
+                 if (ERROR_SUCCESS != status)
+                 {
+-                    perror2(status, "SetSeamlessMode");
++                    win_perror2(status, "SetSeamlessMode");
+                     exitLoop = TRUE;
+                     break;
+                 }
+@@ -1022,7 +1022,7 @@ static DWORD GetDomainName(OUT char *nam
+ 
+     qdb = qdb_open(NULL);
+     if (!qdb)
+-        return perror("qdb_open");
++        return win_perror("qdb_open");
+ 
+     domainName = qdb_read(qdb, "/name", NULL);
+     if (!domainName)
+@@ -1035,7 +1035,7 @@ static DWORD GetDomainName(OUT char *nam
+     LogDebug("%S", domainName);
+     status = StringCchCopyA(nameBuffer, nameLength, domainName);
+     if (FAILED(status))
+-        perror2(status, "StringCchCopyA");
++        win_perror2(status, "StringCchCopyA");
+ 
+ cleanup:
+     qdb_free(domainName);
+@@ -1099,7 +1099,7 @@ static ULONG Init(void)
+     status = IncreaseProcessWorkingSetSize(1024 * 1024 * 100, 1024 * 1024 * 1024);
+     if (ERROR_SUCCESS != status)
+     {
+-        perror("IncreaseProcessWorkingSetSize");
++        win_perror("IncreaseProcessWorkingSetSize");
+         // try to continue
+     }
+ 
+@@ -1132,16 +1132,20 @@ static ULONG Init(void)
+     return ERROR_SUCCESS;
+ }
+ 
++#ifdef __MINGW32__
++int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, WCHAR *lpCmdLine, int nCmdShow)
++#else
+ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
++#endif
+ {
+     if (ERROR_SUCCESS != Init())
+-        return perror("Init");
++        return win_perror("Init");
+ 
+     InitializeCriticalSection(&g_VchanCriticalSection);
+ 
+     // Call the thread proc directly.
+     if (ERROR_SUCCESS != WatchForEvents())
+-        return perror("WatchForEvents");
++        return win_perror("WatchForEvents");
+ 
+     DeleteCriticalSection(&g_VchanCriticalSection);
+ 
+diff -pruN a/gui-agent/qvcontrol.c b/gui-agent/qvcontrol.c
+--- a/gui-agent/qvcontrol.c	2018-07-11 19:29:59.000000000 +0300
++++ b/gui-agent/qvcontrol.c	2020-01-17 13:56:26.899126801 +0300
+@@ -93,7 +93,7 @@ ULONG QvSupportVideoMode(
+ 
+     qvideoDc = CreateDC(NULL, qubesDisplayDeviceName, NULL, NULL);
+     if (!qvideoDc)
+-        return perror("CreateDC");
++        return win_perror("CreateDC");
+ 
+     input.Magic = QVIDEO_MAGIC;
+     input.Width = width;
+@@ -128,7 +128,7 @@ ULONG QvGetWindowData(
+ 
+     qvideoDc = GetDC(window);
+     if (!qvideoDc)
+-        return perror("GetDC");
++        return win_perror("GetDC");
+ 
+     input.Magic = QVIDEO_MAGIC;
+ 
+@@ -171,7 +171,7 @@ ULONG QvReleaseWindowData(
+ 
+     qvideoDc = GetDC(window);
+     if (!qvideoDc)
+-        return perror("GetDC");
++        return win_perror("GetDC");
+ 
+     input.Magic = QVIDEO_MAGIC;
+ 
+diff -pruN a/gui-agent/resolution.c b/gui-agent/resolution.c
+--- a/gui-agent/resolution.c	2018-07-11 19:29:59.000000000 +0300
++++ b/gui-agent/resolution.c	2020-01-17 13:56:26.899126801 +0300
+@@ -70,7 +70,7 @@ static DWORD WINAPI ResolutionChangeThre
+         // We can change the resolution now.
+         LogInfo("resolution change: %dx%d", g_ResolutionChangeParams.Width, g_ResolutionChangeParams.Height);
+         if (!SetEvent(g_ResolutionChangeEvent)) // handled in WatchForEvents, actual resolution change
+-            return perror("SetEvent");
++            return win_perror("SetEvent");
+     }
+     return ERROR_SUCCESS;
+ }
+@@ -92,7 +92,7 @@ void RequestResolutionChange(IN LONG wid
+     g_ResolutionChangeParams.X = x;
+     g_ResolutionChangeParams.Y = y;
+     if (!SetEvent(g_ResolutionChangeRequestedEvent))
+-        perror("SetEvent");
++        win_perror("SetEvent");
+ }
+ 
+ // Actually set video mode through qvideo calls.
+@@ -113,17 +113,17 @@ static ULONG SetVideoModeInternal(IN ULO
+     AttachToInputDesktop();
+ 
+     if (ERROR_SUCCESS != QvFindQubesDisplayDevice(&device))
+-        return perror("QvFindQubesDisplayDevice");
++        return win_perror("QvFindQubesDisplayDevice");
+ 
+     deviceName = (WCHAR *)&device.DeviceName[0];
+ 
+     LogDebug("DeviceName: %s", deviceName);
+ 
+     if (ERROR_SUCCESS != QvSupportVideoMode(deviceName, width, height, bpp))
+-        return perror("QvSupportVideoMode");
++        return win_perror("QvSupportVideoMode");
+ 
+     if (ERROR_SUCCESS != ChangeVideoMode(deviceName, width, height, bpp))
+-        return perror("ChangeVideoMode");
++        return win_perror("ChangeVideoMode");
+ 
+     return ERROR_SUCCESS;
+ }
+diff -pruN a/gui-agent/send.c b/gui-agent/send.c
+--- a/gui-agent/send.c	2018-07-11 19:29:59.000000000 +0300
++++ b/gui-agent/send.c	2020-01-17 13:56:26.900126803 +0300
+@@ -56,7 +56,7 @@ static ULONG PrepareShmCmd(OUT struct sh
+     // this will map driver-managed pfn list into the process, user address is in the response struct
+     status = QvGetWindowData(NULL, &surfaceData);
+     if (ERROR_SUCCESS != status)
+-        return perror2(status, "QvGetWindowData");
++        return win_perror2(status, "QvGetWindowData");
+ 
+     width = surfaceData.Width;
+     height = surfaceData.Height;
+@@ -90,7 +90,7 @@ static ULONG PrepareShmCmd(OUT struct sh
+     // unmap the pfn array
+     status = QvReleaseWindowData(NULL);
+     if (ERROR_SUCCESS != status)
+-        perror2(status, "QvReleaseWindowData");
++        win_perror2(status, "QvReleaseWindowData");
+ 
+     return status;
+ }
+@@ -106,7 +106,7 @@ ULONG SendScreenMfns(void)
+ 
+     status = PrepareShmCmd(&shmCmd);
+     if (ERROR_SUCCESS != status)
+-        return perror2(status, "PrepareShmCmd");
++        return win_perror2(status, "PrepareShmCmd");
+ 
+     if (shmCmd->num_mfn == 0 || shmCmd->num_mfn > MAX_MFN_COUNT)
+     {
+@@ -125,13 +125,13 @@ ULONG SendScreenMfns(void)
+     if (!VCHAN_SEND(header, L"MSG_MFNDUMP"))
+     {
+         LeaveCriticalSection(&g_VchanCriticalSection);
+-        return perror2(ERROR_UNIDENTIFIED_ERROR, "VCHAN_SEND(header)");
++        return win_perror2(ERROR_UNIDENTIFIED_ERROR, "VCHAN_SEND(header)");
+     }
+ 
+     status = VchanSendBuffer(g_Vchan, shmCmd, sizeof(struct shm_cmd) + size, L"shm_cmd");
+     LeaveCriticalSection(&g_VchanCriticalSection);
+     if (!status)
+-        return perror2(status, "VchanSendBuffer");
++        return win_perror2(status, "VchanSendBuffer");
+ 
+     free(shmCmd);
+ 
+@@ -161,7 +161,7 @@ ULONG SendWindowCreate(IN const WINDOW_D
+ 
+         status = QvGetWindowData(NULL, &surfaceData);
+         if (ERROR_SUCCESS != status)
+-            return perror2(status, "QvGetWindowData");
++            return win_perror2(status, "QvGetWindowData");
+ 
+         wi.rcWindow.right = surfaceData.Width;
+         wi.rcWindow.bottom = surfaceData.Height;
+@@ -527,7 +527,7 @@ ULONG SendWindowName(IN HWND window, IN
+         {
+             if (0 == GetWindowTextA(window, nameMsg.data, RTL_NUMBER_OF(nameMsg.data)))
+             {
+-                perror("GetWindowTextA");
++                win_perror("GetWindowTextA");
+                 return ERROR_SUCCESS; // whatever
+             }
+         }
+diff -pruN a/gui-agent/util.c b/gui-agent/util.c
+--- a/gui-agent/util.c	2018-07-11 19:29:59.000000000 +0300
++++ b/gui-agent/util.c	2020-01-17 13:56:26.900126803 +0300
+@@ -38,7 +38,7 @@ static SID *BuildLocalSid(void)
+     SID *sid = NULL;
+     if (!AllocateAndInitializeSid(&sia, 1, SECURITY_AUTHENTICATED_USER_RID, 0, 0, 0, 0, 0, 0, 0, &sid))
+     {
+-        perror("AllocateAndInitializeSid");
++        win_perror("AllocateAndInitializeSid");
+     }
+     return sid;
+ }
+@@ -63,26 +63,26 @@ static ULONG CreatePublicAcl(IN DWORD ac
+     status = SetEntriesInAcl(1, &ea, NULL, &acl);
+     if (status != ERROR_SUCCESS)
+     {
+-        perror2(status, "SetEntriesInAcl");
++        win_perror2(status, "SetEntriesInAcl");
+         goto cleanup;
+     }
+ 
+     sd = (SECURITY_DESCRIPTOR *) LocalAlloc(LMEM_ZEROINIT, sizeof(SECURITY_DESCRIPTOR));
+     if (!sd)
+     {
+-        status = perror("LocalAlloc");
++        status = win_perror("LocalAlloc");
+         goto cleanup;
+     }
+ 
+     if (!InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION))
+     {
+-        status = perror("InitializeSecurityDescriptor");
++        status = win_perror("InitializeSecurityDescriptor");
+         goto cleanup;
+     }
+ 
+     if (!SetSecurityDescriptorDacl(sd, TRUE, acl, FALSE))
+     {
+-        perror("SetSecurityDescriptorDacl");
++        win_perror("SetSecurityDescriptorDacl");
+         goto cleanup;
+     }
+ 
+@@ -121,7 +121,7 @@ HANDLE CreateNamedEvent(IN const WCHAR *
+     status = CreatePublicAcl(EVENT_MODIFY_STATE | READ_CONTROL | SYNCHRONIZE, &sa);
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "CreatePublicAcl");
++        win_perror2(status, "CreatePublicAcl");
+         return NULL;
+     }
+ 
+@@ -135,7 +135,7 @@ HANDLE CreateNamedEvent(IN const WCHAR *
+     LocalFree(sa);
+ 
+     if (!event)
+-        perror2(status, "CreateEvent");
++        win_perror2(status, "CreateEvent");
+ 
+     return event;
+ }
+@@ -152,7 +152,7 @@ HANDLE CreateNamedMailslot(IN const WCHA
+     status = CreatePublicAcl(GENERIC_READ | GENERIC_WRITE | READ_CONTROL | SYNCHRONIZE, &sa);
+     if (ERROR_SUCCESS != status)
+     {
+-        perror2(status, "CreatePublicAcl");
++        win_perror2(status, "CreatePublicAcl");
+         return NULL;
+     }
+ 
+@@ -165,7 +165,7 @@ HANDLE CreateNamedMailslot(IN const WCHA
+     LocalFree(sa);
+ 
+     if (!slot)
+-        perror2(status, "CreateMailslot");
++        win_perror2(status, "CreateMailslot");
+ 
+     return slot;
+ }
+@@ -184,7 +184,7 @@ ULONG StartProcess(IN const WCHAR *execu
+     //si.wShowWindow = SW_HIDE;
+     //si.dwFlags = STARTF_USESHOWWINDOW;
+     if (!CreateProcess(NULL, exePath, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+-        return perror("CreateProcess");
++        return win_perror("CreateProcess");
+     CloseHandle(pi.hThread);
+     *processHandle = pi.hProcess;
+ 
+@@ -196,10 +196,10 @@ ULONG StartProcess(IN const WCHAR *execu
+ ULONG IncreaseProcessWorkingSetSize(IN SIZE_T minimumSize, IN SIZE_T maximumSize)
+ {
+     if (!SetProcessWorkingSetSize(GetCurrentProcess(), minimumSize, maximumSize))
+-        return perror("SetProcessWorkingSetSize");
++        return win_perror("SetProcessWorkingSetSize");
+ 
+     if (!GetProcessWorkingSetSize(GetCurrentProcess(), &minimumSize, &maximumSize))
+-        return perror("GetProcessWorkingSetSize");
++        return win_perror("GetProcessWorkingSetSize");
+ 
+     LogDebug("New working set size: %d pages\n", maximumSize >> 12);
+ 
+@@ -236,7 +236,7 @@ ULONG HideCursors(void)
+ 
+     blankCursor = LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDC_BLANK), IMAGE_CURSOR, 0, 0, LR_DEFAULTSIZE);
+     if (!blankCursor)
+-        return perror("LoadImage");
++        return win_perror("LoadImage");
+ 
+     for (i = 0; i < RTL_NUMBER_OF(cursorsToHide); i++)
+     {
+@@ -246,14 +246,14 @@ ULONG HideCursors(void)
+         // the CopyCursor function, then pass the copy to SetSystemCursor.
+         blankCursorCopy = CopyCursor(blankCursor);
+         if (!blankCursorCopy)
+-            return perror("CopyCursor");
++            return win_perror("CopyCursor");
+ 
+         if (!SetSystemCursor(blankCursorCopy, cursorsToHide[i]))
+-            return perror("SetSystemCursor");
++            return win_perror("SetSystemCursor");
+     }
+ 
+     if (!DestroyCursor(blankCursor))
+-        return perror("DestroyCursor");
++        return win_perror("DestroyCursor");
+ 
+     return ERROR_SUCCESS;
+ }
+@@ -264,13 +264,13 @@ ULONG DisableEffects(void)
+ 
+     LogDebug("start");
+     if (!SystemParametersInfo(SPI_SETDROPSHADOW, 0, (void *) FALSE, SPIF_UPDATEINIFILE))
+-        return perror("SystemParametersInfo(SPI_SETDROPSHADOW)");
++        return win_perror("SystemParametersInfo(SPI_SETDROPSHADOW)");
+ 
+     animationInfo.cbSize = sizeof(animationInfo);
+     animationInfo.iMinAnimate = FALSE;
+ 
+     if (!SystemParametersInfo(SPI_SETANIMATION, sizeof(animationInfo), &animationInfo, SPIF_UPDATEINIFILE))
+-        return perror("SystemParametersInfo(SPI_SETANIMATION)");
++        return win_perror("SystemParametersInfo(SPI_SETANIMATION)");
+ 
+     return ERROR_SUCCESS;
+ }
+@@ -296,14 +296,14 @@ ULONG AttachToInputDesktop(void)
+ 
+     if (!desktop)
+     {
+-        status = perror("OpenInputDesktop");
++        status = win_perror("OpenInputDesktop");
+         goto cleanup;
+     }
+ 
+ #ifdef DEBUG
+     if (!GetUserObjectInformation(desktop, UOI_NAME, name, sizeof(name), &needed))
+     {
+-        perror("GetUserObjectInformation");
++        win_perror("GetUserObjectInformation");
+     }
+     else
+     {
+@@ -321,7 +321,7 @@ ULONG AttachToInputDesktop(void)
+     oldDesktop = GetThreadDesktop(GetCurrentThreadId());
+     if (!SetThreadDesktop(desktop))
+     {
+-        status = perror("SetThreadDesktop");
++        status = win_perror("SetThreadDesktop");
+         goto cleanup;
+     }
+ 
+@@ -330,7 +330,7 @@ ULONG AttachToInputDesktop(void)
+ cleanup:
+     if (oldDesktop)
+         if (!CloseDesktop(oldDesktop))
+-            perror("CloseDesktop(previous)");
++            win_perror("CloseDesktop(previous)");
+     return status;
+ }
+ 
+diff -pruN a/gui-agent/vchan-handlers.c b/gui-agent/vchan-handlers.c
+--- a/gui-agent/vchan-handlers.c	2018-07-11 19:29:59.000000000 +0300
++++ b/gui-agent/vchan-handlers.c	2020-01-17 13:56:26.900126803 +0300
+@@ -41,7 +41,7 @@ static void SignalSASEvent(void)
+     {
+         sasEvent = OpenEvent(EVENT_MODIFY_STATE, FALSE, QGA_SAS_EVENT_NAME);
+         if (!sasEvent)
+-            perror("OpenEvent");
++            win_perror("OpenEvent");
+     }
+ 
+     if (sasEvent)
+@@ -118,7 +118,7 @@ static DWORD HandleKeymapNotify(void)
+ 
+             if (!SendInput(1, &inputEvent, sizeof(inputEvent)))
+             {
+-                return perror("SendInput");
++                return win_perror("SendInput");
+             }
+             LogDebug("unsetting key VK=0x%x (keycode=0x%x)", virtualKey, modifierKeys[i]);
+         }
+@@ -156,7 +156,7 @@ static DWORD SynthesizeKeycode(IN UINT k
+ 
+     if (!SendInput(1, &inputEvent, sizeof(inputEvent)))
+     {
+-        return perror("SendInput");
++        return win_perror("SendInput");
+     }
+ 
+     return ERROR_SUCCESS;
+@@ -194,12 +194,12 @@ static DWORD HandleKeypress(IN HWND wind
+         inputEvent.ki.dwFlags = 0;
+         if (!SendInput(1, &inputEvent, sizeof(inputEvent)))
+         {
+-            return perror("SendInput(VK_CAPITAL)");
++            return win_perror("SendInput(VK_CAPITAL)");
+         }
+         inputEvent.ki.dwFlags = KEYEVENTF_KEYUP;
+         if (!SendInput(1, &inputEvent, sizeof(inputEvent)))
+         {
+-            return perror("SendInput(KEYEVENTF_KEYUP)");
++            return win_perror("SendInput(KEYEVENTF_KEYUP)");
+         }
+     }
+ 
+@@ -267,7 +267,7 @@ static DWORD HandleButton(IN HWND window
+     LogDebug("window 0x%x, (%d,%d), flags 0x%x", window, inputEvent.mi.dx, inputEvent.mi.dy, inputEvent.mi.dwFlags);
+     if (!SendInput(1, &inputEvent, sizeof(inputEvent)))
+     {
+-        return perror("SendInput");
++        return win_perror("SendInput");
+     }
+ 
+     return ERROR_SUCCESS;
+@@ -301,7 +301,7 @@ static DWORD HandleMotion(IN HWND window
+ 
+     if (!SendInput(1, &inputEvent, sizeof(inputEvent)))
+     {
+-        return perror("SendInput");
++        return win_perror("SendInput");
+     }
+ 
+     return ERROR_SUCCESS;
+diff -pruN a/gui-agent/wm.c b/gui-agent/wm.c
+--- a/gui-agent/wm.c	2018-07-11 19:29:59.000000000 +0300
++++ b/gui-agent/wm.c	2020-01-17 13:56:26.901126805 +0300
+@@ -19,7 +19,7 @@
+  *
+  */
+ 
+-#include <Windows.h>
++#include <windows.h>
+ 
+ // Debug helper functions
+ 
+diff -pruN a/include/mingw/customddkinc.h b/include/mingw/customddkinc.h
+--- a/include/mingw/customddkinc.h	1970-01-01 03:00:00.000000000 +0300
++++ b/include/mingw/customddkinc.h	2020-01-17 13:56:26.901126805 +0300
+@@ -0,0 +1,72 @@
++#include <devpropdef.h>
++#include <strsafe.h>
++#include <sal.h>
++
++#define __field_bcount_part(size,init) SAL__notnull SAL__byte_writableTo(size) SAL__byte_readableTo(init)
++
++DEFINE_DEVPROPKEY(DEVPKEY_Device_HardwareIds,            0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 3);     // DEVPROP_TYPE_STRING_LIST
++DEFINE_DEVPROPKEY(DEVPKEY_Device_Class,                  0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 9);     // DEVPROP_TYPE_STRING
++DEFINE_DEVPROPKEY(DEVPKEY_Device_LocationInfo,           0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 15);    // DEVPROP_TYPE_STRING
++#define IOCTL_DISK_SET_DISK_ATTRIBUTES      CTL_CODE(IOCTL_DISK_BASE, 0x003d, METHOD_BUFFERED,     FILE_READ_ACCESS | FILE_WRITE_ACCESS)
++
++#define DISK_ATTRIBUTE_OFFLINE              0x0000000000000001
++#define DISK_ATTRIBUTE_READ_ONLY            0x0000000000000002
++
++//
++// IOCTL_DISK_SET_DISK_ATTRIBUTES
++//
++// Input Buffer:
++//     Structure of type SET_DISK_ATTRIBUTES
++//
++// Output Buffer:
++//     None
++//
++
++typedef struct _SET_DISK_ATTRIBUTES {
++
++    //
++    // Specifies the size of the
++    // structure for versioning.
++    //
++    ULONG Version;
++
++    //
++    // Indicates whether to remember
++    // these settings across reboots
++    // or not.
++    //
++    BOOLEAN Persist;
++
++    //
++    // Indicates whether the ownership
++    // taken earlier is being released.
++    //
++    BOOLEAN RelinquishOwnership;
++
++    //
++    // For alignment purposes.
++    //
++    BOOLEAN Reserved1[2];
++
++    //
++    // Specifies the new attributes.
++    //
++    ULONGLONG Attributes;
++
++    //
++    // Specifies the attributes
++    // that are being modified.
++    //
++    ULONGLONG AttributesMask;
++
++    //
++    // Specifies an identifier to be
++    // associated  with  the caller.
++    // This setting is not persisted
++    // across reboots.
++    //
++    GUID Owner;
++
++} SET_DISK_ATTRIBUTES, *PSET_DISK_ATTRIBUTES;
++
++
+diff -pruN a/include/mingw/d3dnthal.h b/include/mingw/d3dnthal.h
+--- a/include/mingw/d3dnthal.h	1970-01-01 03:00:00.000000000 +0300
++++ b/include/mingw/d3dnthal.h	2020-01-17 13:56:26.901126805 +0300
+@@ -0,0 +1,258 @@
++/*
++ * d3dnthal.h
++ *
++ * Direct3D NT driver interface
++ *
++ * Contributors:
++ *   Created by Ge van Geldorp
++ *
++ * THIS SOFTWARE IS NOT COPYRIGHTED
++ *
++ * This source code is offered for use in the public domain. You may
++ * use, modify or distribute it freely.
++ *
++ * This code is distributed in the hope that it will be useful but
++ * WITHOUT ANY WARRANTY. ALL WARRANTIES, EXPRESS OR IMPLIED ARE HEREBY
++ * DISCLAIMED. This includes but is not limited to warranties of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
++ *
++ */
++
++#ifndef __DDK_D3DNTHAL_H
++#define __DDK_D3DNTHAL_H
++
++#include <ddrawint.h>
++#include <d3dtypes.h>
++#include <d3dcaps.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++DEFINE_GUID(GUID_D3DCallbacks,                   0x7BF06990, 0x8794, 0x11D0, 0x91, 0x39, 0x08, 0x00, 0x36, 0xD2, 0xEF, 0x02);
++DEFINE_GUID(GUID_D3DCallbacks3,                  0xDDF41230, 0xEC0A, 0x11D0, 0xA9, 0xB6, 0x00, 0xAA, 0x00, 0xC0, 0x99, 0x3E);
++DEFINE_GUID(GUID_D3DExtendedCaps,                0x7DE41F80, 0x9D93, 0x11D0, 0x89, 0xAB, 0x00, 0xA0, 0xC9, 0x05, 0x41, 0x29);
++DEFINE_GUID(GUID_D3DParseUnknownCommandCallback, 0x2E04FFA0, 0x98E4, 0x11D1, 0x8C, 0xE1, 0x00, 0xA0, 0xC9, 0x06, 0x29, 0xA8);
++DEFINE_GUID(GUID_ZPixelFormats,                  0x93869880, 0x36CF, 0x11D1, 0x9B, 0x1B, 0x00, 0xAA, 0x00, 0xBB, 0xB8, 0xAE);
++DEFINE_GUID(GUID_DDStereoMode,                   0xF828169C, 0xA8E8, 0x11D2, 0xA1, 0xF2, 0x00, 0xA0, 0xC9, 0x83, 0xEA, 0xF6);
++
++typedef struct _D3DNTHAL_CONTEXTCREATEDATA {
++  __GNU_EXTENSION union {
++    PDD_DIRECTDRAW_GLOBAL lpDDGbl;
++    PDD_DIRECTDRAW_LOCAL lpDDLcl;
++  };
++  __GNU_EXTENSION union {
++    PDD_SURFACE_LOCAL lpDDS;
++    PDD_SURFACE_LOCAL lpDDSLcl;
++  };
++  __GNU_EXTENSION union {
++    PDD_SURFACE_LOCAL lpDDSZ;
++    PDD_SURFACE_LOCAL lpDDSZLcl;
++  };
++  DWORD dwPID;
++  ULONG_PTR dwhContext;
++  HRESULT ddrval;
++} D3DNTHAL_CONTEXTCREATEDATA, *LPD3DNTHAL_CONTEXTCREATEDATA;
++
++typedef struct _D3DNTHAL_CONTEXTDESTROYDATA {
++  ULONG_PTR dwhContext;
++  HRESULT ddrval;
++} D3DNTHAL_CONTEXTDESTROYDATA, *LPD3DNTHAL_CONTEXTDESTROYDATA;
++
++typedef struct _D3DNTHAL_CONTEXTDESTROYALLDATA {
++  DWORD dwPID;
++  HRESULT ddrval;
++} D3DNTHAL_CONTEXTDESTROYALLDATA, *LPD3DNTHAL_CONTEXTDESTROYALLDATA;
++
++typedef struct _D3DNTHAL_SCENECAPTUREDATA {
++  ULONG_PTR dwhContext;
++  DWORD dwFlag;
++  HRESULT ddrval;
++} D3DNTHAL_SCENECAPTUREDATA, *LPD3DNTHAL_SCENECAPTUREDATA;
++
++typedef struct _D3DNTHAL_TEXTURECREATEDATA {
++  ULONG_PTR dwhContext;
++  HANDLE hDDS;
++  ULONG_PTR dwHandle;
++  HRESULT ddrval;
++} D3DNTHAL_TEXTURECREATEDATA, *LPD3DNTHAL_TEXTURECREATEDATA;
++
++typedef struct _D3DNTHAL_TEXTUREDESTROYDATA {
++  ULONG_PTR dwhContext;
++  ULONG_PTR dwHandle;
++  HRESULT ddrval;
++} D3DNTHAL_TEXTUREDESTROYDATA, *LPD3DNTHAL_TEXTUREDESTROYDATA;
++
++typedef struct _D3DNTHAL_TEXTURESWAPDATA {
++  ULONG_PTR dwhContext;
++  ULONG_PTR dwHandle1;
++  ULONG_PTR dwHandle2;
++  HRESULT ddrval;
++} D3DNTHAL_TEXTURESWAPDATA, *LPD3DNTHAL_TEXTURESWAPDATA;
++
++typedef struct _D3DNTHAL_TEXTUREGETSURFDATA {
++  ULONG_PTR dwhContext;
++  HANDLE hDDS;
++  ULONG_PTR dwHandle;
++  HRESULT ddrval;
++} D3DNTHAL_TEXTUREGETSURFDATA, *LPD3DNTHAL_TEXTUREGETSURFDATA;
++
++typedef DWORD (APIENTRY *LPD3DNTHAL_CONTEXTCREATECB)(LPD3DNTHAL_CONTEXTCREATEDATA);
++typedef DWORD (APIENTRY *LPD3DNTHAL_CONTEXTDESTROYCB)(LPD3DNTHAL_CONTEXTDESTROYDATA);
++typedef DWORD (APIENTRY *LPD3DNTHAL_CONTEXTDESTROYALLCB)(LPD3DNTHAL_CONTEXTDESTROYALLDATA);
++typedef DWORD (APIENTRY *LPD3DNTHAL_SCENECAPTURECB)(LPD3DNTHAL_SCENECAPTUREDATA);
++typedef DWORD (APIENTRY *LPD3DNTHAL_TEXTURECREATECB)(LPD3DNTHAL_TEXTURECREATEDATA);
++typedef DWORD (APIENTRY *LPD3DNTHAL_TEXTUREDESTROYCB)(LPD3DNTHAL_TEXTUREDESTROYDATA);
++typedef DWORD (APIENTRY *LPD3DNTHAL_TEXTURESWAPCB)(LPD3DNTHAL_TEXTURESWAPDATA);
++typedef DWORD (APIENTRY *LPD3DNTHAL_TEXTUREGETSURFCB)(LPD3DNTHAL_TEXTUREGETSURFDATA);
++
++typedef struct _D3DNTHALDeviceDesc_V1 {
++	DWORD            dwSize;
++	DWORD            dwFlags;
++	D3DCOLORMODEL    dcmColorModel;
++	DWORD            dwDevCaps;
++	D3DTRANSFORMCAPS dtcTransformCaps;
++	WINBOOL          bClipping;
++	D3DLIGHTINGCAPS  dlcLightingCaps;
++	D3DPRIMCAPS      dpcLineCaps;
++	D3DPRIMCAPS      dpcTriCaps;
++	DWORD            dwDeviceRenderBitDepth;
++	DWORD            dwDeviceZBufferBitDepth;
++	DWORD            dwMaxBufferSize;
++	DWORD            dwMaxVertexCount;
++} D3DNTHALDEVICEDESC_V1, *LPD3DNTHALDEVICEDESC_V1;
++
++typedef struct _D3DNTHAL_GLOBALDRIVERDATA {
++	DWORD               dwSize;
++	D3DNTHALDEVICEDESC_V1 hwCaps;
++	DWORD               dwNumVertices;
++	DWORD               dwNumClipVertices;
++	DWORD               dwNumTextureFormats;
++	LPDDSURFACEDESC     lpTextureFormats;
++} D3DNTHAL_GLOBALDRIVERDATA, *LPD3DNTHAL_GLOBALDRIVERDATA;
++
++typedef struct _D3DNTHAL_CALLBACKS {
++  DWORD dwSize;
++  LPD3DNTHAL_CONTEXTCREATECB ContextCreate;
++  LPD3DNTHAL_CONTEXTDESTROYCB ContextDestroy;
++  LPD3DNTHAL_CONTEXTDESTROYALLCB ContextDestroyAll;
++  LPD3DNTHAL_SCENECAPTURECB SceneCapture;
++  LPVOID dwReserved10;
++  LPVOID dwReserved11;
++  LPVOID dwReserved22;
++  LPVOID dwReserved23;
++  ULONG_PTR dwReserved;
++  LPD3DNTHAL_TEXTURECREATECB TextureCreate;
++  LPD3DNTHAL_TEXTUREDESTROYCB TextureDestroy;
++  LPD3DNTHAL_TEXTURESWAPCB TextureSwap;
++  LPD3DNTHAL_TEXTUREGETSURFCB TextureGetSurf;
++  LPVOID dwReserved12;
++  LPVOID dwReserved13;
++  LPVOID dwReserved14;
++  LPVOID dwReserved15;
++  LPVOID dwReserved16;
++  LPVOID dwReserved17;
++  LPVOID dwReserved18;
++  LPVOID dwReserved19;
++  LPVOID dwReserved20;
++  LPVOID dwReserved21;
++  LPVOID dwReserved24;
++  ULONG_PTR dwReserved0;
++  ULONG_PTR dwReserved1;
++  ULONG_PTR dwReserved2;
++  ULONG_PTR dwReserved3;
++  ULONG_PTR dwReserved4;
++  ULONG_PTR dwReserved5;
++  ULONG_PTR dwReserved6;
++  ULONG_PTR dwReserved7;
++  ULONG_PTR dwReserved8;
++  ULONG_PTR dwReserved9;
++} D3DNTHAL_CALLBACKS, *LPD3DNTHAL_CALLBACKS;
++
++
++typedef struct _D3DNTHAL_SETRENDERTARGETDATA {
++  ULONG_PTR dwhContext;
++  PDD_SURFACE_LOCAL lpDDS;
++  PDD_SURFACE_LOCAL lpDDSZ;
++  HRESULT ddrval;
++} D3DNTHAL_SETRENDERTARGETDATA;
++typedef D3DNTHAL_SETRENDERTARGETDATA *LPD3DNTHAL_SETRENDERTARGETDATA;
++
++typedef DWORD (APIENTRY *LPD3DNTHAL_SETRENDERTARGETCB)(LPD3DNTHAL_SETRENDERTARGETDATA);
++
++
++typedef struct _D3DNTHAL_CALLBACKS2 {
++  DWORD dwSize;
++  DWORD dwFlags;
++
++  LPD3DNTHAL_SETRENDERTARGETCB SetRenderTarget;
++  LPVOID dwReserved1;
++  LPVOID dwReserved2;
++  LPVOID dwReserved3;
++  LPVOID dwReserved4;
++} D3DNTHAL_CALLBACKS2, *LPD3DNTHAL_CALLBACKS2;
++
++
++typedef struct _D3DNTHAL_CLEAR2DATA {
++  ULONG_PTR dwhContext;
++  DWORD dwFlags;
++  DWORD dwFillColor;
++  D3DVALUE dvFillDepth;
++  DWORD dwFillStencil;
++  LPD3DRECT lpRects;
++  DWORD dwNumRects;
++  HRESULT ddrval;
++} D3DNTHAL_CLEAR2DATA;
++typedef D3DNTHAL_CLEAR2DATA FAR *LPD3DNTHAL_CLEAR2DATA;
++
++typedef struct _D3DNTHAL_VALIDATETEXTURESTAGESTATEDATA {
++  ULONG_PTR dwhContext;
++  DWORD dwFlags;
++  ULONG_PTR dwReserved;
++  DWORD dwNumPasses;
++  HRESULT ddrval;
++} D3DNTHAL_VALIDATETEXTURESTAGESTATEDATA, FAR *LPD3DNTHAL_VALIDATETEXTURESTAGESTATEDATA;
++
++typedef struct _D3DNTHAL_DRAWPRIMITIVES2DATA {
++  ULONG_PTR dwhContext;
++  DWORD dwFlags;
++  DWORD dwVertexType;
++  PDD_SURFACE_LOCAL lpDDCommands;
++  DWORD dwCommandOffset;
++  DWORD dwCommandLength;
++  __GNU_EXTENSION union {
++    PDD_SURFACE_LOCAL lpDDVertex;
++    LPVOID lpVertices;
++  };
++  DWORD dwVertexOffset;
++  DWORD dwVertexLength;
++  DWORD dwReqVertexBufSize;
++  DWORD dwReqCommandBufSize;
++  LPDWORD lpdwRStates;
++  __GNU_EXTENSION union {
++    DWORD dwVertexSize;
++    HRESULT ddrval;
++  };
++  DWORD dwErrorOffset;
++} D3DNTHAL_DRAWPRIMITIVES2DATA, FAR *LPD3DNTHAL_DRAWPRIMITIVES2DATA;
++
++typedef DWORD (APIENTRY *LPD3DNTHAL_CLEAR2CB)(LPD3DNTHAL_CLEAR2DATA);
++typedef DWORD (APIENTRY *LPD3DNTHAL_VALIDATETEXTURESTAGESTATECB)(LPD3DNTHAL_VALIDATETEXTURESTAGESTATEDATA);
++typedef DWORD (APIENTRY *LPD3DNTHAL_DRAWPRIMITIVES2CB)(LPD3DNTHAL_DRAWPRIMITIVES2DATA);
++
++typedef struct _D3DNTHAL_CALLBACKS3 {
++  DWORD dwSize; 
++  DWORD dwFlags;
++
++  LPD3DNTHAL_CLEAR2CB Clear2;
++  LPVOID lpvReserved;
++  LPD3DNTHAL_VALIDATETEXTURESTAGESTATECB ValidateTextureStageState;
++  LPD3DNTHAL_DRAWPRIMITIVES2CB DrawPrimitives2;
++} D3DNTHAL_CALLBACKS3, *LPD3DNTHAL_CALLBACKS3;
++
++#ifdef __cplusplus
++} /* extern "C" */
++#endif
++
++#endif /* __DDK_D3DNTHAL_H */
++
+diff -pruN a/include/mingw/ddrawint.h b/include/mingw/ddrawint.h
+--- a/include/mingw/ddrawint.h	1970-01-01 03:00:00.000000000 +0300
++++ b/include/mingw/ddrawint.h	2020-01-17 13:56:26.902126808 +0300
+@@ -0,0 +1,1459 @@
++/*
++ * ddrawint.h
++ *
++ * DirectDraw NT driver interface
++ *
++ * Contributors:
++ *   Created by Ge van Geldorp
++ *
++ * THIS SOFTWARE IS NOT COPYRIGHTED
++ *
++ * This source code is offered for use in the public domain. You may
++ * use, modify or distribute it freely.
++ *
++ * This code is distributed in the hope that it will be useful but
++ * WITHOUT ANY WARRANTY. ALL WARRANTIES, EXPRESS OR IMPLIED ARE HEREBY
++ * DISCLAIMED. This includes but is not limited to warranties of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
++ *
++ */
++
++#ifndef __DD_INCLUDED__
++#define __DD_INCLUDED__
++
++DEFINE_GUID( GUID_MiscellaneousCallbacks,  0xEFD60CC0, 0x49e7, 0x11d0, 0x88, 0x9d, 0x0, 0xaa, 0x0, 0xbb, 0xb7, 0x6a);
++DEFINE_GUID( GUID_Miscellaneous2Callbacks, 0x406B2F00, 0x3E5A, 0x11D1, 0xB6, 0x40, 0x00, 0xAA, 0x00, 0xA1, 0xF9, 0x6A);
++DEFINE_GUID( GUID_VideoPortCallbacks,      0xefd60cc1, 0x49e7, 0x11d0, 0x88, 0x9d, 0x0, 0xaa, 0x0, 0xbb, 0xb7, 0x6a);
++DEFINE_GUID( GUID_ColorControlCallbacks,   0xefd60cc2, 0x49e7, 0x11d0, 0x88, 0x9d, 0x0, 0xaa, 0x0, 0xbb, 0xb7, 0x6a);
++DEFINE_GUID( GUID_MotionCompCallbacks,     0xb1122b40, 0x5dA5, 0x11d1, 0x8f, 0xcF, 0x00, 0xc0, 0x4f, 0xc2, 0x9b, 0x4e);
++DEFINE_GUID( GUID_VideoPortCaps,           0xefd60cc3, 0x49e7, 0x11d0, 0x88, 0x9d, 0x0, 0xaa, 0x0, 0xbb, 0xb7, 0x6a);
++DEFINE_GUID( GUID_D3DCaps,                 0x7bf06991, 0x8794, 0x11d0, 0x91, 0x39, 0x08, 0x00, 0x36, 0xd2, 0xef, 0x02);
++DEFINE_GUID( GUID_D3DExtendedCaps,         0x7de41f80, 0x9d93, 0x11d0, 0x89, 0xab, 0x00, 0xa0, 0xc9, 0x05, 0x41, 0x29);
++DEFINE_GUID( GUID_D3DCallbacks,            0x7bf06990, 0x8794, 0x11d0, 0x91, 0x39, 0x08, 0x00, 0x36, 0xd2, 0xef, 0x02);
++DEFINE_GUID( GUID_D3DCallbacks2,           0xba584e1, 0x70b6, 0x11d0, 0x88, 0x9d, 0x0, 0xaa, 0x0, 0xbb, 0xb7, 0x6a);
++DEFINE_GUID( GUID_D3DCallbacks3,           0xddf41230, 0xec0a, 0x11d0, 0xa9, 0xb6, 0x00, 0xaa, 0x00, 0xc0, 0x99, 0x3e);
++DEFINE_GUID( GUID_NonLocalVidMemCaps,      0x86c4fa80, 0x8d84, 0x11d0, 0x94, 0xe8, 0x00, 0xc0, 0x4f, 0xc3, 0x41, 0x37);
++DEFINE_GUID( GUID_KernelCallbacks,         0x80863800, 0x6B06, 0x11D0, 0x9B, 0x06, 0x0, 0xA0, 0xC9, 0x03, 0xA3, 0xB8);
++DEFINE_GUID( GUID_KernelCaps,              0xFFAA7540, 0x7AA8, 0x11D0, 0x9B, 0x06, 0x00, 0xA0, 0xC9, 0x03, 0xA3, 0xB8);
++DEFINE_GUID( GUID_ZPixelFormats,           0x93869880, 0x36cf, 0x11d1, 0x9b, 0x1b, 0x0, 0xaa, 0x0, 0xbb, 0xb8, 0xae);
++DEFINE_GUID( GUID_DDMoreCaps,              0x880baf30, 0xb030, 0x11d0, 0x8e, 0xa7, 0x00, 0x60, 0x97, 0x97, 0xea, 0x5b);
++DEFINE_GUID( GUID_D3DParseUnknownCommandCallback, 0x2e04ffa0, 0x98e4, 0x11d1, 0x8c, 0xe1, 0x0, 0xa0, 0xc9, 0x6, 0x29, 0xa8);
++DEFINE_GUID( GUID_NTCallbacks,             0x6fe9ecde, 0xdf89, 0x11d1, 0x9d, 0xb0, 0x00, 0x60, 0x08, 0x27, 0x71, 0xba);
++DEFINE_GUID( GUID_DDMoreSurfaceCaps,       0x3b8a0466, 0xf269, 0x11d1, 0x88, 0x0b, 0x0, 0xc0, 0x4f, 0xd9, 0x30, 0xc5);
++DEFINE_GUID( GUID_GetHeapAlignment,        0x42e02f16, 0x7b41, 0x11d2, 0x8b, 0xff, 0x0, 0xa0, 0xc9, 0x83, 0xea, 0xf6);
++DEFINE_GUID( GUID_UpdateNonLocalHeap,      0x42e02f17, 0x7b41, 0x11d2, 0x8b, 0xff, 0x0, 0xa0, 0xc9, 0x83, 0xea, 0xf6);
++DEFINE_GUID( GUID_NTPrivateDriverCaps,     0xfad16a23, 0x7b66, 0x11d2, 0x83, 0xd7, 0x0, 0xc0, 0x4f, 0x7c, 0xe5, 0x8c);
++DEFINE_GUID( GUID_DDStereoMode,            0xf828169c, 0xa8e8, 0x11d2, 0xa1, 0xf2, 0x0, 0xa0, 0xc9, 0x83, 0xea, 0xf6);
++DEFINE_GUID( GUID_VPE2Callbacks,           0x52882147, 0x2d47, 0x469a, 0xa0, 0xd1, 0x3, 0x45, 0x58, 0x90, 0xf6, 0xc8);
++
++
++#ifndef GUID_DEFS_ONLY
++
++#ifndef _NO_DDRAWINT_NO_COM
++#ifndef _NO_COM
++#define _NO_COM
++#include <ddraw.h>
++#include <dvp.h>
++#undef _NO_COM
++#else
++#include <ddraw.h>
++#include <dvp.h>
++#endif
++#else
++#include <ddraw.h>
++#include <dvp.h>
++#endif
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#ifndef MAKE_HRESULT // fixme this if statment should not be here, but MAKE_HRESULT should be here
++#define MAKE_HRESULT(sev,fac,code) ((HRESULT) (((ULONG)(sev)<<31) | ((ULONG)(fac)<<16) | ((ULONG)(code))) )
++#endif
++
++#ifndef FLATPTR_DEFINED
++typedef ULONG_PTR FLATPTR;
++#define FLATPTR_DEFINED
++#endif
++
++typedef struct _DD_VIDEOPORT_LOCAL   *PDD_VIDEOPORT_LOCAL;
++
++/************************************************************************/
++/* _DD_GETHEAPALIGNMENTDATA is defined in dmemmgr.h                     */
++ /************************************************************************/
++struct _DD_GETHEAPALIGNMENTDATA;
++#ifndef DD_GETHEAPALIGNMENTDATA_DECLARED
++typedef struct _DD_GETHEAPALIGNMENTDATA *PDD_GETHEAPALIGNMENTDATA;
++#define DD_GETHEAPALIGNMENTDATA_DECLARED
++#endif
++
++/************************************************************************/
++/* Video memory info structures                                         */
++/************************************************************************/
++
++typedef struct _VIDEOMEMORY
++{
++	DWORD		dwFlags;
++	FLATPTR		fpStart;
++	__GNU_EXTENSION union {
++	  FLATPTR	fpEnd;
++	  DWORD		dwWidth;
++	};
++	DDSCAPS		ddsCaps;
++	DDSCAPS		ddsCapsAlt;
++	__GNU_EXTENSION union {
++	  struct _VMEMHEAP  *lpHeap;
++	  DWORD		dwHeight;
++	};
++} VIDEOMEMORY, *PVIDEOMEMORY;
++
++typedef struct _VIDEOMEMORYINFO
++{
++	FLATPTR		fpPrimary;
++	DWORD		dwFlags;
++	DWORD		dwDisplayWidth;
++	DWORD		dwDisplayHeight;
++	LONG		lDisplayPitch;
++	DDPIXELFORMAT	ddpfDisplay;
++	DWORD		dwOffscreenAlign;
++	DWORD		dwOverlayAlign;
++	DWORD		dwTextureAlign;
++	DWORD		dwZBufferAlign;
++	DWORD		dwAlphaAlign;
++	PVOID		pvPrimary;
++} VIDEOMEMORYINFO;
++typedef VIDEOMEMORYINFO *LPVIDEOMEMORYINFO;
++
++typedef struct _DD_DIRECTDRAW_GLOBAL
++{
++	PVOID			dhpdev;
++	ULONG_PTR		dwReserved1;
++	ULONG_PTR		dwReserved2;
++	LPDDVIDEOPORTCAPS	lpDDVideoPortCaps;
++} DD_DIRECTDRAW_GLOBAL, *PDD_DIRECTDRAW_GLOBAL;
++
++typedef struct _DD_DIRECTDRAW_LOCAL
++{
++	PDD_DIRECTDRAW_GLOBAL	lpGbl;
++} DD_DIRECTDRAW_LOCAL, *PDD_DIRECTDRAW_LOCAL;
++
++
++typedef struct _DD_SURFACE_GLOBAL
++{
++	__GNU_EXTENSION union {
++	  DWORD		dwBlockSizeY;
++	  LONG		lSlicePitch;
++	};
++
++	__GNU_EXTENSION union {
++	  PVIDEOMEMORY	lpVidMemHeap;
++	  DWORD		dwBlockSizeX;
++	  DWORD		dwUserMemSize;
++	};
++
++	FLATPTR		fpVidMem;
++	__GNU_EXTENSION union {
++	  LONG		lPitch;
++	  DWORD		dwLinearSize;
++	};
++	LONG		yHint;
++	LONG		xHint;
++	DWORD		wHeight;
++	DWORD		wWidth;
++	ULONG_PTR	dwReserved1;
++	DDPIXELFORMAT	ddpfSurface;
++	FLATPTR		fpHeapOffset;
++	HANDLE		hCreatorProcess;
++} DD_SURFACE_GLOBAL, *PDD_SURFACE_GLOBAL;
++
++typedef struct _DD_SURFACE_MORE
++{
++	DWORD			dwMipMapCount;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	DWORD			dwOverlayFlags;
++	DDSCAPSEX		ddsCapsEx;
++	DWORD			dwSurfaceHandle;
++} DD_SURFACE_MORE, *PDD_SURFACE_MORE;
++
++typedef struct _DD_ATTACHLIST *PDD_ATTACHLIST;
++
++typedef struct _DD_SURFACE_LOCAL
++{
++	PDD_SURFACE_GLOBAL	lpGbl;
++	DWORD			dwFlags;
++	DDSCAPS			ddsCaps;
++	ULONG_PTR		dwReserved1;
++	__GNU_EXTENSION union {
++	  DDCOLORKEY		ddckCKSrcOverlay;
++	  DDCOLORKEY		ddckCKSrcBlt;
++	};
++	__GNU_EXTENSION union {
++	  DDCOLORKEY		ddckCKDestOverlay;
++	  DDCOLORKEY		ddckCKDestBlt;
++	};
++	PDD_SURFACE_MORE	lpSurfMore;
++	PDD_ATTACHLIST		lpAttachList;
++	PDD_ATTACHLIST		lpAttachListFrom;
++	RECT			rcOverlaySrc;
++} DD_SURFACE_LOCAL, *PDD_SURFACE_LOCAL;
++
++typedef struct _DD_ATTACHLIST
++{
++	PDD_ATTACHLIST		lpLink;
++	PDD_SURFACE_LOCAL	lpAttached;
++} DD_ATTACHLIST;
++
++typedef struct _DD_SURFACE_INT
++{
++	PDD_SURFACE_LOCAL 	lpLcl;
++} DD_SURFACE_INT, *PDD_SURFACE_INT;
++
++/************************************************************************/
++/* DDI representation of the DirectDrawPalette object                   */
++/************************************************************************/
++
++typedef struct _DD_PALETTE_GLOBAL
++{
++	ULONG_PTR           Reserved1;
++} DD_PALETTE_GLOBAL, *PDD_PALETTE_GLOBAL;
++
++/************************************************************************/
++/* DDI representation of the DirectDrawVideo object                     */
++/************************************************************************/
++
++typedef struct
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	GUID			guid;
++	DWORD			dwUncompWidth;
++	DWORD			dwUncompHeight;
++	DDPIXELFORMAT		ddUncompPixelFormat;
++	DWORD			dwDriverReserved1;
++	DWORD			dwDriverReserved2;
++	DWORD			dwDriverReserved3;
++	LPVOID			lpDriverReserved1;
++	LPVOID			lpDriverReserved2;
++	LPVOID			lpDriverReserved3;
++} DD_MOTIONCOMP_LOCAL, *PDD_MOTIONCOMP_LOCAL;
++
++
++typedef struct _DD_VIDEOPORT_LOCAL
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	DDVIDEOPORTDESC		ddvpDesc;
++	DDVIDEOPORTINFO		ddvpInfo;
++	PDD_SURFACE_INT		lpSurface;
++	PDD_SURFACE_INT		lpVBISurface;
++	DWORD			dwNumAutoflip;
++	DWORD			dwNumVBIAutoflip;
++	ULONG_PTR		dwReserved1;
++	ULONG_PTR		dwReserved2;
++	ULONG_PTR		dwReserved3;
++} DD_VIDEOPORT_LOCAL;
++
++/************************************************************************/
++/* IDirectDrawSurface callbacks                                         */
++/************************************************************************/
++
++typedef struct _DD_LOCKDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDSurface;
++	DWORD			bHasRect;
++	RECTL			rArea;
++	LPVOID			lpSurfData;
++	HRESULT			ddRVal;
++	PVOID			Lock;
++	DWORD			dwFlags;
++	FLATPTR			fpProcess;
++} DD_LOCKDATA, *PDD_LOCKDATA;
++typedef DWORD (WINAPI *PDD_SURFCB_LOCK)(PDD_LOCKDATA);
++
++
++typedef struct _DD_UNLOCKDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDSurface;
++	HRESULT			ddRVal;
++	PVOID			Unlock;
++} DD_UNLOCKDATA, *PDD_UNLOCKDATA;
++typedef DWORD (WINAPI *PDD_SURFCB_UNLOCK)(PDD_UNLOCKDATA);
++
++#define DDABLT_SRCOVERDEST		0x00000001
++#define DDBLT_AFLAGS			0x80000000
++
++typedef struct _DD_BLTDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDDestSurface;
++	RECTL			rDest;
++	PDD_SURFACE_LOCAL	lpDDSrcSurface;
++	RECTL			rSrc;
++	DWORD			dwFlags;
++	DWORD			dwROPFlags;
++	DDBLTFX			bltFX;
++	HRESULT			ddRVal;
++	PVOID			Blt;
++	WINBOOL			IsClipped;
++	RECTL			rOrigDest;
++	RECTL			rOrigSrc;
++	DWORD			dwRectCnt;
++	LPRECT			prDestRects;
++	DWORD			dwAFlags;
++	DDARGB			ddargbScaleFactors;
++} DD_BLTDATA, *PDD_BLTDATA;
++typedef DWORD (WINAPI *PDD_SURFCB_BLT)(PDD_BLTDATA);
++
++typedef struct _DD_UPDATEOVERLAYDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDDestSurface;
++	RECTL			rDest;
++	PDD_SURFACE_LOCAL	lpDDSrcSurface;
++	RECTL			rSrc;
++	DWORD			dwFlags;
++	DDOVERLAYFX		overlayFX;
++	HRESULT			ddRVal;
++	PVOID			UpdateOverlay;
++} DD_UPDATEOVERLAYDATA, *PDD_UPDATEOVERLAYDATA;
++typedef DWORD (WINAPI *PDD_SURFCB_UPDATEOVERLAY)(PDD_UPDATEOVERLAYDATA);
++
++typedef struct _DD_SETOVERLAYPOSITIONDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDSrcSurface;
++	PDD_SURFACE_LOCAL	lpDDDestSurface;
++	LONG			lXPos;
++	LONG			lYPos;
++	HRESULT			ddRVal;
++	PVOID			SetOverlayPosition;
++} DD_SETOVERLAYPOSITIONDATA, *PDD_SETOVERLAYPOSITIONDATA;
++typedef DWORD (WINAPI *PDD_SURFCB_SETOVERLAYPOSITION)(PDD_SETOVERLAYPOSITIONDATA);
++
++typedef struct _DD_SETPALETTEDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDSurface;
++	PDD_PALETTE_GLOBAL	lpDDPalette;
++	HRESULT			ddRVal;
++	PVOID			SetPalette;
++	WINBOOL			Attach;
++} DD_SETPALETTEDATA, *PDD_SETPALETTEDATA;
++typedef DWORD (WINAPI *PDD_SURFCB_SETPALETTE)(PDD_SETPALETTEDATA);
++
++typedef struct _DD_FLIPDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpSurfCurr;
++	PDD_SURFACE_LOCAL	lpSurfTarg;
++	DWORD			dwFlags;
++	HRESULT			ddRVal;
++	PVOID			Flip;
++	PDD_SURFACE_LOCAL	lpSurfCurrLeft;
++	PDD_SURFACE_LOCAL	lpSurfTargLeft;
++} DD_FLIPDATA, *PDD_FLIPDATA;
++typedef DWORD (WINAPI *PDD_SURFCB_FLIP)(PDD_FLIPDATA);
++
++typedef struct _DD_DESTROYSURFACEDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDSurface;
++	HRESULT			ddRVal;
++	PVOID			DestroySurface;
++} DD_DESTROYSURFACEDATA, *PDD_DESTROYSURFACEDATA;
++typedef DWORD (WINAPI *PDD_SURFCB_DESTROYSURFACE)(PDD_DESTROYSURFACEDATA);
++
++typedef struct _DD_SETCLIPLISTDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDSurface;
++	HRESULT			ddRVal;
++	PVOID			SetClipList;
++} DD_SETCLIPLISTDATA, *PDD_SETCLIPLISTDATA;
++typedef DWORD (WINAPI *PDD_SURFCB_SETCLIPLIST)(PDD_SETCLIPLISTDATA);
++
++typedef struct _DD_ADDATTACHEDSURFACEDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDSurface;
++	PDD_SURFACE_LOCAL	lpSurfAttached;
++	HRESULT			ddRVal;
++	PVOID			AddAttachedSurface;
++} DD_ADDATTACHEDSURFACEDATA, *PDD_ADDATTACHEDSURFACEDATA;
++typedef DWORD (WINAPI *PDD_SURFCB_ADDATTACHEDSURFACE)(PDD_ADDATTACHEDSURFACEDATA);
++
++typedef struct _DD_SETCOLORKEYDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDSurface;
++	DWORD			dwFlags;
++	DDCOLORKEY		ckNew;
++	HRESULT			ddRVal;
++	PVOID			SetColorKey;
++} DD_SETCOLORKEYDATA, *PDD_SETCOLORKEYDATA;
++typedef DWORD (WINAPI *PDD_SURFCB_SETCOLORKEY)(PDD_SETCOLORKEYDATA);
++
++typedef struct _DD_GETBLTSTATUSDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDSurface;
++	DWORD			dwFlags;
++	HRESULT			ddRVal;
++	PVOID			GetBltStatus;
++} DD_GETBLTSTATUSDATA, *PDD_GETBLTSTATUSDATA;
++typedef DWORD (WINAPI *PDD_SURFCB_GETBLTSTATUS)(PDD_GETBLTSTATUSDATA);
++
++typedef struct _DD_GETFLIPSTATUSDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDSurface;
++	DWORD			dwFlags;
++	HRESULT			ddRVal;
++	PVOID			GetFlipStatus;
++} DD_GETFLIPSTATUSDATA, *PDD_GETFLIPSTATUSDATA;
++typedef DWORD (WINAPI *PDD_SURFCB_GETFLIPSTATUS)(PDD_GETFLIPSTATUSDATA);
++
++typedef struct DD_SURFACECALLBACKS
++{
++	DWORD				dwSize;
++	DWORD				dwFlags;
++	PDD_SURFCB_DESTROYSURFACE	DestroySurface;
++	PDD_SURFCB_FLIP			Flip;
++	PDD_SURFCB_SETCLIPLIST		SetClipList;
++	PDD_SURFCB_LOCK			Lock;
++	PDD_SURFCB_UNLOCK		Unlock;
++	PDD_SURFCB_BLT			Blt;
++	PDD_SURFCB_SETCOLORKEY		SetColorKey;
++	PDD_SURFCB_ADDATTACHEDSURFACE	AddAttachedSurface;
++	PDD_SURFCB_GETBLTSTATUS		GetBltStatus;
++	PDD_SURFCB_GETFLIPSTATUS	GetFlipStatus;
++	PDD_SURFCB_UPDATEOVERLAY	UpdateOverlay;
++	PDD_SURFCB_SETOVERLAYPOSITION	SetOverlayPosition;
++	PVOID				reserved4;
++	PDD_SURFCB_SETPALETTE		SetPalette;
++} DD_SURFACECALLBACKS, *PDD_SURFACECALLBACKS;
++
++
++#define DDHAL_SURFCB32_DESTROYSURFACE			0x00000001
++#define DDHAL_SURFCB32_FLIP				0x00000002
++#define DDHAL_SURFCB32_SETCLIPLIST			0x00000004
++#define DDHAL_SURFCB32_LOCK				0x00000008
++#define DDHAL_SURFCB32_UNLOCK				0x00000010
++#define DDHAL_SURFCB32_BLT				0x00000020
++#define DDHAL_SURFCB32_SETCOLORKEY			0x00000040
++#define DDHAL_SURFCB32_ADDATTACHEDSURFACE		0x00000080
++#define DDHAL_SURFCB32_GETBLTSTATUS			0x00000100
++#define DDHAL_SURFCB32_GETFLIPSTATUS			0x00000200
++#define DDHAL_SURFCB32_UPDATEOVERLAY			0x00000400
++#define DDHAL_SURFCB32_SETOVERLAYPOSITION		0x00000800
++#define DDHAL_SURFCB32_RESERVED4			0x00001000
++#define DDHAL_SURFCB32_SETPALETTE			0x00002000
++
++/************************************************************************/
++/* IDirectDraw callbacks                                                */
++/************************************************************************/
++
++typedef struct _DD_CREATESURFACEDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	DDSURFACEDESC		*lpDDSurfaceDesc;
++	PDD_SURFACE_LOCAL	*lplpSList;
++	DWORD			dwSCnt;
++	HRESULT			ddRVal;
++	PVOID			CreateSurface;
++} DD_CREATESURFACEDATA, *PDD_CREATESURFACEDATA;
++typedef DWORD (WINAPI *PDD_CREATESURFACE)(PDD_CREATESURFACEDATA);
++
++typedef struct _DD_DRVSETCOLORKEYDATA
++{
++	PDD_SURFACE_LOCAL	lpDDSurface;
++	DWORD			dwFlags;
++	DDCOLORKEY		ckNew;
++	HRESULT			ddRVal;
++	PVOID			SetColorKey;
++} DD_DRVSETCOLORKEYDATA, *PDD_DRVSETCOLORKEYDATA;
++typedef DWORD (WINAPI *PDD_SETCOLORKEY)(PDD_DRVSETCOLORKEYDATA);
++
++#define DDWAITVB_I_TESTVB    0x80000006
++
++typedef struct _DD_WAITFORVERTICALBLANKDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	DWORD			dwFlags;
++	DWORD			bIsInVB;
++	DWORD			hEvent;
++	HRESULT			ddRVal;
++	PVOID			WaitForVerticalBlank;
++} DD_WAITFORVERTICALBLANKDATA, *PDD_WAITFORVERTICALBLANKDATA;
++typedef DWORD (WINAPI *PDD_WAITFORVERTICALBLANK)(PDD_WAITFORVERTICALBLANKDATA);
++
++typedef struct _DD_CANCREATESURFACEDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	DDSURFACEDESC		*lpDDSurfaceDesc;
++	DWORD			bIsDifferentPixelFormat;
++	HRESULT			ddRVal;
++	PVOID			CanCreateSurface;
++} DD_CANCREATESURFACEDATA, *PDD_CANCREATESURFACEDATA;
++typedef DWORD (WINAPI *PDD_CANCREATESURFACE)(PDD_CANCREATESURFACEDATA);
++
++typedef struct _DD_CREATEPALETTEDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_PALETTE_GLOBAL	lpDDPalette;
++	LPPALETTEENTRY		lpColorTable;
++	HRESULT			ddRVal;
++	PVOID			CreatePalette;
++	WINBOOL			is_excl;
++} DD_CREATEPALETTEDATA, *PDD_CREATEPALETTEDATA;
++typedef DWORD (WINAPI *PDD_CREATEPALETTE)(PDD_CREATEPALETTEDATA);
++
++typedef struct _DD_GETSCANLINEDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	DWORD			dwScanLine;
++	HRESULT			ddRVal;
++	PVOID			GetScanLine;
++} DD_GETSCANLINEDATA, *PDD_GETSCANLINEDATA;
++typedef DWORD (WINAPI *PDD_GETSCANLINE)(PDD_GETSCANLINEDATA);
++
++typedef struct _DD_MAPMEMORYDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	WINBOOL			bMap;
++	HANDLE			hProcess;
++	FLATPTR			fpProcess;
++	HRESULT			ddRVal;
++} DD_MAPMEMORYDATA, *PDD_MAPMEMORYDATA;
++typedef DWORD (WINAPI *PDD_MAPMEMORY)(PDD_MAPMEMORYDATA);
++
++
++typedef struct _DD_DESTROYDRIVERDATA *PDD_DESTROYDRIVERDATA;
++typedef struct _DD_SETMODEDATA *PDD_SETMODEDATA;
++
++typedef DWORD   (APIENTRY *PDD_DESTROYDRIVER)(PDD_DESTROYDRIVERDATA);
++typedef DWORD   (APIENTRY *PDD_SETMODE)(PDD_SETMODEDATA);
++
++typedef struct DD_CALLBACKS
++{
++	DWORD			dwSize;
++	DWORD			dwFlags;
++	PDD_DESTROYDRIVER	DestroyDriver;
++	PDD_CREATESURFACE	CreateSurface;
++	PDD_SETCOLORKEY		SetColorKey;
++	PDD_SETMODE		SetMode;
++	PDD_WAITFORVERTICALBLANK WaitForVerticalBlank;
++	PDD_CANCREATESURFACE	CanCreateSurface;
++	PDD_CREATEPALETTE	CreatePalette;
++	PDD_GETSCANLINE		GetScanLine;
++	PDD_MAPMEMORY		MapMemory;
++} DD_CALLBACKS, *PDD_CALLBACKS;
++
++
++#define DDHAL_CB32_DESTROYDRIVER			0x00000001l
++#define DDHAL_CB32_CREATESURFACE			0x00000002l
++#define DDHAL_CB32_SETCOLORKEY				0x00000004l
++#define DDHAL_CB32_SETMODE				0x00000008l
++#define DDHAL_CB32_WAITFORVERTICALBLANK			0x00000010l
++#define DDHAL_CB32_CANCREATESURFACE			0x00000020l
++#define DDHAL_CB32_CREATEPALETTE			0x00000040l
++#define DDHAL_CB32_GETSCANLINE				0x00000080l
++#define DDHAL_CB32_MAPMEMORY				0x80000000l
++
++typedef struct _DD_GETAVAILDRIVERMEMORYDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	DDSCAPS			DDSCaps;
++	DWORD			dwTotal;
++	DWORD			dwFree;
++	HRESULT			ddRVal;
++	PVOID			GetAvailDriverMemory;
++} DD_GETAVAILDRIVERMEMORYDATA, *PDD_GETAVAILDRIVERMEMORYDATA;
++typedef DWORD (WINAPI *PDD_GETAVAILDRIVERMEMORY)(PDD_GETAVAILDRIVERMEMORYDATA);
++
++typedef struct _DD_MISCELLANEOUSCALLBACKS
++{
++	DWORD			dwSize;
++	DWORD			dwFlags;
++	PDD_GETAVAILDRIVERMEMORY GetAvailDriverMemory;
++} DD_MISCELLANEOUSCALLBACKS, *PDD_MISCELLANEOUSCALLBACKS;
++
++#define DDHAL_MISCCB32_GETAVAILDRIVERMEMORY		0x00000001
++
++typedef DWORD (WINAPI *PDD_ALPHABLT)(PDD_BLTDATA);
++
++typedef struct _DD_CREATESURFACEEXDATA
++{
++	DWORD			dwFlags;
++	PDD_DIRECTDRAW_LOCAL	lpDDLcl;
++	PDD_SURFACE_LOCAL	lpDDSLcl;
++	HRESULT			ddRVal;
++} DD_CREATESURFACEEXDATA, *PDD_CREATESURFACEEXDATA;
++typedef DWORD (WINAPI *PDD_CREATESURFACEEX)(PDD_CREATESURFACEEXDATA);
++
++typedef struct _DD_GETDRIVERSTATEDATA
++{
++	DWORD			dwFlags;
++	__GNU_EXTENSION union {
++	  PDD_DIRECTDRAW_GLOBAL	lpDD;
++	  DWORD_PTR		dwhContext;
++	};
++	LPDWORD			lpdwStates;
++	DWORD			dwLength;
++	HRESULT			ddRVal;
++} DD_GETDRIVERSTATEDATA, *PDD_GETDRIVERSTATEDATA;
++typedef DWORD (WINAPI *PDD_GETDRIVERSTATE)(PDD_GETDRIVERSTATEDATA);
++
++typedef struct _DD_DESTROYDDLOCALDATA
++{
++	DWORD			dwFlags;
++	PDD_DIRECTDRAW_LOCAL	pDDLcl;
++	HRESULT			ddRVal;
++} DD_DESTROYDDLOCALDATA, *PDD_DESTROYDDLOCALDATA;
++typedef DWORD (WINAPI *PDD_DESTROYDDLOCAL)(PDD_DESTROYDDLOCALDATA);
++
++
++typedef struct _DD_MISCELLANEOUS2CALLBACKS
++{
++	DWORD			dwSize;
++	DWORD			dwFlags;
++	PDD_ALPHABLT		AlphaBlt;
++	PDD_CREATESURFACEEX	CreateSurfaceEx;
++	PDD_GETDRIVERSTATE	GetDriverState;
++	PDD_DESTROYDDLOCAL	DestroyDDLocal;
++} DD_MISCELLANEOUS2CALLBACKS, *PDD_MISCELLANEOUS2CALLBACKS;
++
++
++#define DDHAL_MISC2CB32_ALPHABLT			0x00000001
++#define DDHAL_MISC2CB32_CREATESURFACEEX			0x00000002
++#define DDHAL_MISC2CB32_GETDRIVERSTATE			0x00000004
++#define DDHAL_MISC2CB32_DESTROYDDLOCAL			0x00000008
++
++
++typedef struct _DD_FREEDRIVERMEMORYDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDSurface;
++	HRESULT			ddRVal;
++	PVOID			FreeDriverMemory;
++} DD_FREEDRIVERMEMORYDATA, *PDD_FREEDRIVERMEMORYDATA;
++typedef DWORD (WINAPI *PDD_FREEDRIVERMEMORY)(PDD_FREEDRIVERMEMORYDATA);
++
++typedef struct _DD_SETEXCLUSIVEMODEDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	DWORD			dwEnterExcl;
++	DWORD			dwReserved;
++	HRESULT			ddRVal;
++	PVOID			SetExclusiveMode;
++} DD_SETEXCLUSIVEMODEDATA, *PDD_SETEXCLUSIVEMODEDATA;
++typedef DWORD (WINAPI *PDD_SETEXCLUSIVEMODE)(PDD_SETEXCLUSIVEMODEDATA);
++
++typedef struct _DD_FLIPTOGDISURFACEDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	DWORD			dwToGDI;
++	DWORD			dwReserved;
++	HRESULT			ddRVal;
++	PVOID			FlipToGDISurface;
++} DD_FLIPTOGDISURFACEDATA, *PDD_FLIPTOGDISURFACEDATA;
++typedef DWORD (WINAPI *PDD_FLIPTOGDISURFACE)(PDD_FLIPTOGDISURFACEDATA);
++
++
++
++typedef struct _DD_NTCALLBACKS
++{
++	DWORD			dwSize;
++	DWORD			dwFlags;
++	PDD_FREEDRIVERMEMORY	FreeDriverMemory;
++	PDD_SETEXCLUSIVEMODE	SetExclusiveMode;
++	PDD_FLIPTOGDISURFACE	FlipToGDISurface;
++} DD_NTCALLBACKS, *PDD_NTCALLBACKS;
++
++
++#define DDHAL_NTCB32_FREEDRIVERMEMORY			0x00000001
++#define DDHAL_NTCB32_SETEXCLUSIVEMODE			0x00000002
++#define DDHAL_NTCB32_FLIPTOGDISURFACE			0x00000004
++
++/************************************************************************/
++/* IDirectDrawPalette callbacks                                         */
++/************************************************************************/
++
++typedef struct _DD_DESTROYPALETTEDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_PALETTE_GLOBAL	lpDDPalette;
++	HRESULT			ddRVal;
++	PVOID			DestroyPalette;
++} DD_DESTROYPALETTEDATA, *PDD_DESTROYPALETTEDATA;
++typedef DWORD (WINAPI *PDD_PALCB_DESTROYPALETTE)(PDD_DESTROYPALETTEDATA);
++
++typedef struct _DD_SETENTRIESDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_PALETTE_GLOBAL	lpDDPalette;
++	DWORD			dwBase;
++	DWORD			dwNumEntries;
++	LPPALETTEENTRY		lpEntries;
++	HRESULT			ddRVal;
++	PVOID			SetEntries;
++} DD_SETENTRIESDATA, *PDD_SETENTRIESDATA;
++typedef DWORD (WINAPI *PDD_PALCB_SETENTRIES)(PDD_SETENTRIESDATA);
++
++typedef struct DD_PALETTECALLBACKS
++{
++	DWORD			dwSize;
++	DWORD			dwFlags;
++	PDD_PALCB_DESTROYPALETTE DestroyPalette;
++	PDD_PALCB_SETENTRIES	SetEntries;
++} DD_PALETTECALLBACKS, *PDD_PALETTECALLBACKS;
++
++#define DDHAL_PALCB32_DESTROYPALETTE    0x00000001l
++#define DDHAL_PALCB32_SETENTRIES    0x00000002l
++
++/************************************************************************/
++/* IDirectDrawVideoport callbacks                                       */
++/************************************************************************/
++
++typedef struct _DD_CANCREATEVPORTDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	LPDDVIDEOPORTDESC	lpDDVideoPortDesc;
++	HRESULT			ddRVal;
++	PVOID			CanCreateVideoPort;
++} DD_CANCREATEVPORTDATA, *PDD_CANCREATEVPORTDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_CANCREATEVIDEOPORT)(PDD_CANCREATEVPORTDATA);
++
++typedef struct _DD_CREATEVPORTDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	LPDDVIDEOPORTDESC	lpDDVideoPortDesc;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	HRESULT			ddRVal;
++	PVOID			CreateVideoPort;
++} DD_CREATEVPORTDATA, *PDD_CREATEVPORTDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_CREATEVIDEOPORT)(PDD_CREATEVPORTDATA);
++
++typedef struct _DD_FLIPVPORTDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	PDD_SURFACE_LOCAL	lpSurfCurr;
++	PDD_SURFACE_LOCAL	lpSurfTarg;
++	HRESULT			ddRVal;
++	PVOID			FlipVideoPort;
++} DD_FLIPVPORTDATA, *PDD_FLIPVPORTDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_FLIP)(PDD_FLIPVPORTDATA);
++
++typedef struct _DD_GETVPORTBANDWIDTHDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	LPDDPIXELFORMAT		lpddpfFormat;
++	DWORD			dwWidth;
++	DWORD			dwHeight;
++	DWORD			dwFlags;
++	LPDDVIDEOPORTBANDWIDTH	lpBandwidth;
++	HRESULT			ddRVal;
++	PVOID			GetVideoPortBandwidth;
++} DD_GETVPORTBANDWIDTHDATA, *PDD_GETVPORTBANDWIDTHDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_GETBANDWIDTH)(PDD_GETVPORTBANDWIDTHDATA);
++
++typedef struct _DD_GETVPORTINPUTFORMATDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	DWORD			dwFlags;
++	LPDDPIXELFORMAT		lpddpfFormat;
++	DWORD			dwNumFormats;
++	HRESULT			ddRVal;
++	PVOID			GetVideoPortInputFormats;
++} DD_GETVPORTINPUTFORMATDATA, *PDD_GETVPORTINPUTFORMATDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_GETINPUTFORMATS)(PDD_GETVPORTINPUTFORMATDATA);
++
++typedef struct _DD_GETVPORTOUTPUTFORMATDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	DWORD			dwFlags;
++	LPDDPIXELFORMAT		lpddpfInputFormat;
++	LPDDPIXELFORMAT		lpddpfOutputFormats;
++	DWORD			dwNumFormats;
++	HRESULT			ddRVal;
++	PVOID			GetVideoPortInputFormats;
++} DD_GETVPORTOUTPUTFORMATDATA, *PDD_GETVPORTOUTPUTFORMATDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_GETOUTPUTFORMATS)(PDD_GETVPORTOUTPUTFORMATDATA);
++
++typedef struct _DD_GETVPORTFIELDDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	WINBOOL			bField;
++	HRESULT			ddRVal;
++	PVOID			GetVideoPortField;
++} DD_GETVPORTFIELDDATA, *PDD_GETVPORTFIELDDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_GETFIELD)(PDD_GETVPORTFIELDDATA);
++
++typedef struct _DD_GETVPORTLINEDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	DWORD			dwLine;
++	HRESULT			ddRVal;
++	PVOID			GetVideoPortLine;
++} DD_GETVPORTLINEDATA, *PDD_GETVPORTLINEDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_GETLINE)(PDD_GETVPORTLINEDATA);
++
++typedef struct _DD_GETVPORTCONNECTDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	DWORD			dwPortId;
++	LPDDVIDEOPORTCONNECT	lpConnect;
++	DWORD			dwNumEntries;
++	HRESULT			ddRVal;
++	PVOID			GetVideoPortConnectInfo;
++} DD_GETVPORTCONNECTDATA, *PDD_GETVPORTCONNECTDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_GETVPORTCONNECT)(PDD_GETVPORTCONNECTDATA);
++
++typedef struct _DD_DESTROYVPORTDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	HRESULT			ddRVal;
++	PVOID			DestroyVideoPort;
++} DD_DESTROYVPORTDATA, *PDD_DESTROYVPORTDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_DESTROYVPORT)(PDD_DESTROYVPORTDATA);
++
++typedef struct _DD_GETVPORTFLIPSTATUSDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	FLATPTR			fpSurface;
++	HRESULT			ddRVal;
++	PVOID			GetVideoPortFlipStatus;
++} DD_GETVPORTFLIPSTATUSDATA, *PDD_GETVPORTFLIPSTATUSDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_GETFLIPSTATUS)(PDD_GETVPORTFLIPSTATUSDATA);
++
++
++typedef struct _DD_UPDATEVPORTDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	PDD_SURFACE_INT		*lplpDDSurface;
++	PDD_SURFACE_INT		*lplpDDVBISurface;
++	LPDDVIDEOPORTINFO	lpVideoInfo;
++	DWORD			dwFlags;
++	DWORD			dwNumAutoflip;
++	DWORD			dwNumVBIAutoflip;
++	HRESULT			ddRVal;
++	PVOID			UpdateVideoPort;
++} DD_UPDATEVPORTDATA, *PDD_UPDATEVPORTDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_UPDATE)(PDD_UPDATEVPORTDATA);
++
++typedef struct _DD_WAITFORVPORTSYNCDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	DWORD			dwFlags;
++	DWORD			dwLine;
++	DWORD			dwTimeOut;
++	HRESULT			ddRVal;
++	PVOID			UpdateVideoPort;
++} DD_WAITFORVPORTSYNCDATA, *PDD_WAITFORVPORTSYNCDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_WAITFORSYNC)(PDD_WAITFORVPORTSYNCDATA);
++
++typedef struct _DD_GETVPORTSIGNALDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	DWORD			dwStatus;
++	HRESULT			ddRVal;
++	PVOID			GetVideoSignalStatus;
++} DD_GETVPORTSIGNALDATA, *PDD_GETVPORTSIGNALDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_GETSIGNALSTATUS)(PDD_GETVPORTSIGNALDATA);
++
++typedef struct _DD_VPORTCOLORDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	DWORD			dwFlags;
++	LPDDCOLORCONTROL	lpColorData;
++	HRESULT			ddRVal;
++	PVOID			ColorControl;
++} DD_VPORTCOLORDATA, *PDD_VPORTCOLORDATA;
++typedef DWORD (WINAPI *PDD_VPORTCB_COLORCONTROL)(PDD_VPORTCOLORDATA);
++
++
++typedef struct DD_VIDEOPORTCALLBACKS
++{
++	DWORD				dwSize;
++	DWORD				dwFlags;
++	PDD_VPORTCB_CANCREATEVIDEOPORT	CanCreateVideoPort;
++	PDD_VPORTCB_CREATEVIDEOPORT	CreateVideoPort;
++	PDD_VPORTCB_FLIP		FlipVideoPort;
++	PDD_VPORTCB_GETBANDWIDTH	GetVideoPortBandwidth;
++	PDD_VPORTCB_GETINPUTFORMATS	GetVideoPortInputFormats;
++	PDD_VPORTCB_GETOUTPUTFORMATS	GetVideoPortOutputFormats;
++	PVOID				lpReserved1;
++	PDD_VPORTCB_GETFIELD		GetVideoPortField;
++	PDD_VPORTCB_GETLINE		GetVideoPortLine;
++	PDD_VPORTCB_GETVPORTCONNECT	GetVideoPortConnectInfo;
++	PDD_VPORTCB_DESTROYVPORT	DestroyVideoPort;
++	PDD_VPORTCB_GETFLIPSTATUS	GetVideoPortFlipStatus;
++	PDD_VPORTCB_UPDATE		UpdateVideoPort;
++	PDD_VPORTCB_WAITFORSYNC		WaitForVideoPortSync;
++	PDD_VPORTCB_GETSIGNALSTATUS	GetVideoSignalStatus;
++	PDD_VPORTCB_COLORCONTROL	ColorControl;
++} DD_VIDEOPORTCALLBACKS, *PDD_VIDEOPORTCALLBACKS;
++
++#define DDHAL_VPORT32_CANCREATEVIDEOPORT		0x00000001
++#define DDHAL_VPORT32_CREATEVIDEOPORT			0x00000002
++#define DDHAL_VPORT32_FLIP				0x00000004
++#define DDHAL_VPORT32_GETBANDWIDTH			0x00000008
++#define DDHAL_VPORT32_GETINPUTFORMATS			0x00000010
++#define DDHAL_VPORT32_GETOUTPUTFORMATS			0x00000020
++#define DDHAL_VPORT32_GETFIELD				0x00000080
++#define DDHAL_VPORT32_GETLINE				0x00000100
++#define DDHAL_VPORT32_GETCONNECT			0x00000200
++#define DDHAL_VPORT32_DESTROY				0x00000400
++#define DDHAL_VPORT32_GETFLIPSTATUS			0x00000800
++#define DDHAL_VPORT32_UPDATE				0x00001000
++#define DDHAL_VPORT32_WAITFORSYNC			0x00002000
++#define DDHAL_VPORT32_GETSIGNALSTATUS			0x00004000
++#define DDHAL_VPORT32_COLORCONTROL			0x00008000
++
++
++/************************************************************************/
++/* IDirectDrawColorControl callbacks                                    */
++/************************************************************************/
++
++#define DDRAWI_GETCOLOR					0x0001
++#define DDRAWI_SETCOLOR					0x0002
++
++typedef struct _DD_COLORCONTROLDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDSurface;
++	LPDDCOLORCONTROL	lpColorData;
++	DWORD			dwFlags;
++	HRESULT			ddRVal;
++	PVOID			ColorControl;
++} DD_COLORCONTROLDATA, *PDD_COLORCONTROLDATA;
++typedef DWORD (WINAPI *PDD_COLORCB_COLORCONTROL)(PDD_COLORCONTROLDATA);
++
++
++typedef struct _DD_COLORCONTROLCALLBACKS
++{
++	DWORD			dwSize;
++	DWORD			dwFlags;
++	PDD_COLORCB_COLORCONTROL ColorControl;
++} DD_COLORCONTROLCALLBACKS, *PDD_COLORCONTROLCALLBACKS;
++
++#define DDHAL_COLOR_COLORCONTROL			0x00000001
++
++/************************************************************************/
++/* IDirectDrawVideo callbacks                                           */
++/************************************************************************/
++
++typedef struct _DD_GETMOCOMPGUIDSDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	DWORD			dwNumGuids;
++	GUID			*lpGuids;
++	HRESULT			ddRVal;
++} DD_GETMOCOMPGUIDSDATA, *PDD_GETMOCOMPGUIDSDATA;
++typedef DWORD (WINAPI *PDD_MOCOMPCB_GETGUIDS)(PDD_GETMOCOMPGUIDSDATA);
++
++typedef struct _DD_GETMOCOMPFORMATSDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	GUID			*lpGuid;
++	DWORD			dwNumFormats;
++	LPDDPIXELFORMAT		lpFormats;
++	HRESULT			ddRVal;
++} DD_GETMOCOMPFORMATSDATA, *PDD_GETMOCOMPFORMATSDATA;
++typedef DWORD (WINAPI *PDD_MOCOMPCB_GETFORMATS)(PDD_GETMOCOMPFORMATSDATA);
++
++typedef struct _DD_CREATEMOCOMPDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_MOTIONCOMP_LOCAL	lpMoComp;
++	GUID			*lpGuid;
++	DWORD			dwUncompWidth;
++	DWORD			dwUncompHeight;
++	DDPIXELFORMAT		ddUncompPixelFormat;
++	LPVOID			lpData;
++	DWORD			dwDataSize;
++	HRESULT			ddRVal;
++} DD_CREATEMOCOMPDATA, *PDD_CREATEMOCOMPDATA;
++typedef DWORD (WINAPI *PDD_MOCOMPCB_CREATE)(PDD_CREATEMOCOMPDATA);
++
++typedef struct _DDCOMPBUFFERINFO
++{
++	DWORD			dwSize;
++	DWORD			dwNumCompBuffers;
++	DWORD			dwWidthToCreate;
++	DWORD			dwHeightToCreate;
++	DWORD			dwBytesToAllocate;
++	DDSCAPS2		ddCompCaps;
++	DDPIXELFORMAT		ddPixelFormat;
++} DDCOMPBUFFERINFO, *LPDDCOMPBUFFERINFO;
++
++typedef struct _DD_GETMOCOMPCOMPBUFFDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	GUID			*lpGuid;
++	DWORD			dwWidth;
++	DWORD			dwHeight;
++	DDPIXELFORMAT		ddPixelFormat;
++	DWORD			dwNumTypesCompBuffs;
++	LPDDCOMPBUFFERINFO	lpCompBuffInfo;
++	HRESULT			ddRVal;
++} DD_GETMOCOMPCOMPBUFFDATA, *PDD_GETMOCOMPCOMPBUFFDATA;
++typedef DWORD (WINAPI *PDD_MOCOMPCB_GETCOMPBUFFINFO)(PDD_GETMOCOMPCOMPBUFFDATA);
++
++typedef struct _DD_GETINTERNALMOCOMPDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	GUID			*lpGuid;
++	DWORD			dwWidth;
++	DWORD			dwHeight;
++	DDPIXELFORMAT		ddPixelFormat;
++	DWORD			dwScratchMemAlloc;
++	HRESULT			ddRVal;
++} DD_GETINTERNALMOCOMPDATA, *PDD_GETINTERNALMOCOMPDATA;
++typedef DWORD (WINAPI *PDD_MOCOMPCB_GETINTERNALINFO)(PDD_GETINTERNALMOCOMPDATA);
++
++typedef struct _DD_BEGINMOCOMPFRAMEDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_MOTIONCOMP_LOCAL	lpMoComp;
++	PDD_SURFACE_LOCAL	lpDestSurface;
++	DWORD			dwInputDataSize;
++	LPVOID			lpInputData;
++	DWORD			dwOutputDataSize;
++	LPVOID			lpOutputData;
++	HRESULT			ddRVal;
++} DD_BEGINMOCOMPFRAMEDATA, *PDD_BEGINMOCOMPFRAMEDATA;
++typedef DWORD (WINAPI *PDD_MOCOMPCB_BEGINFRAME)(PDD_BEGINMOCOMPFRAMEDATA);
++
++typedef struct _DD_ENDMOCOMPFRAMEDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_MOTIONCOMP_LOCAL	lpMoComp;
++	LPVOID			lpInputData;
++	DWORD			dwInputDataSize;
++	HRESULT			ddRVal;
++} DD_ENDMOCOMPFRAMEDATA, *PDD_ENDMOCOMPFRAMEDATA;
++typedef DWORD (WINAPI *PDD_MOCOMPCB_ENDFRAME)(PDD_ENDMOCOMPFRAMEDATA);
++
++typedef struct _DDMOCOMPBUFFERINFO
++{
++	DWORD			dwSize;
++	PDD_SURFACE_LOCAL	lpCompSurface;
++	DWORD			dwDataOffset;
++	DWORD			dwDataSize;
++	LPVOID			lpPrivate;
++} DDMOCOMPBUFFERINFO, *LPDDMOCOMPBUFFERINFO;
++
++typedef struct _DD_RENDERMOCOMPDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_MOTIONCOMP_LOCAL	lpMoComp;
++	DWORD			dwNumBuffers;
++	LPDDMOCOMPBUFFERINFO	lpBufferInfo;
++	DWORD			dwFunction;
++	LPVOID			lpInputData;
++	DWORD			dwInputDataSize;
++	LPVOID			lpOutputData;
++	DWORD			dwOutputDataSize;
++	HRESULT			ddRVal;
++} DD_RENDERMOCOMPDATA, *PDD_RENDERMOCOMPDATA;
++typedef DWORD (WINAPI *PDD_MOCOMPCB_RENDER)(PDD_RENDERMOCOMPDATA);
++
++#define DDMCQUERY_READ					0x00000001
++
++typedef struct _DD_QUERYMOCOMPSTATUSDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_MOTIONCOMP_LOCAL	lpMoComp;
++	PDD_SURFACE_LOCAL	lpSurface;
++	DWORD			dwFlags;
++	HRESULT			ddRVal;
++} DD_QUERYMOCOMPSTATUSDATA, *PDD_QUERYMOCOMPSTATUSDATA;
++typedef DWORD (WINAPI *PDD_MOCOMPCB_QUERYSTATUS)(PDD_QUERYMOCOMPSTATUSDATA);
++
++typedef struct _DD_DESTROYMOCOMPDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_MOTIONCOMP_LOCAL	lpMoComp;
++	HRESULT			ddRVal;
++} DD_DESTROYMOCOMPDATA, *PDD_DESTROYMOCOMPDATA;
++typedef DWORD (WINAPI *PDD_MOCOMPCB_DESTROY)(PDD_DESTROYMOCOMPDATA);
++
++
++typedef struct DD_MOTIONCOMPCALLBACKS
++{
++	DWORD				dwSize;
++	DWORD				dwFlags;
++	PDD_MOCOMPCB_GETGUIDS		GetMoCompGuids;
++	PDD_MOCOMPCB_GETFORMATS		GetMoCompFormats;
++	PDD_MOCOMPCB_CREATE		CreateMoComp;
++	PDD_MOCOMPCB_GETCOMPBUFFINFO	GetMoCompBuffInfo;
++	PDD_MOCOMPCB_GETINTERNALINFO	GetInternalMoCompInfo;
++	PDD_MOCOMPCB_BEGINFRAME		BeginMoCompFrame;
++	PDD_MOCOMPCB_ENDFRAME		EndMoCompFrame;
++	PDD_MOCOMPCB_RENDER		RenderMoComp;
++	PDD_MOCOMPCB_QUERYSTATUS	QueryMoCompStatus;
++	PDD_MOCOMPCB_DESTROY		DestroyMoComp;
++} DD_MOTIONCOMPCALLBACKS, *PDD_MOTIONCOMPCALLBACKS;
++
++#define DDHAL_MOCOMP32_GETGUIDS				0x00000001
++#define DDHAL_MOCOMP32_GETFORMATS			0x00000002
++#define DDHAL_MOCOMP32_CREATE				0x00000004
++#define DDHAL_MOCOMP32_GETCOMPBUFFINFO			0x00000008
++#define DDHAL_MOCOMP32_GETINTERNALINFO			0x00000010
++#define DDHAL_MOCOMP32_BEGINFRAME			0x00000020
++#define DDHAL_MOCOMP32_ENDFRAME				0x00000040
++#define DDHAL_MOCOMP32_RENDER				0x00000080
++#define DDHAL_MOCOMP32_QUERYSTATUS			0x00000100
++#define DDHAL_MOCOMP32_DESTROY				0x00000200
++
++/************************************************************************/
++/* D3D buffer callbacks                                                 */
++/************************************************************************/
++
++typedef struct _DD_D3DBUFCALLBACKS
++{
++	DWORD			dwSize;
++	DWORD			dwFlags;
++	PDD_CANCREATESURFACE	CanCreateD3DBuffer;
++	PDD_CREATESURFACE	CreateD3DBuffer;
++	PDD_SURFCB_DESTROYSURFACE DestroyD3DBuffer;
++	PDD_SURFCB_LOCK		LockD3DBuffer;
++	PDD_SURFCB_UNLOCK	UnlockD3DBuffer;
++} DD_D3DBUFCALLBACKS, *PDD_D3DBUFCALLBACKS;
++
++/************************************************************************/
++/* DdGetDriverInfo callback                                             */
++/************************************************************************/
++
++typedef struct _DD_GETDRIVERINFODATA
++{
++	// Input:
++	PVOID	dhpdev;
++	DWORD	dwSize;
++	DWORD	dwFlags;
++	GUID	guidInfo;
++	DWORD	dwExpectedSize;
++	PVOID	lpvData;
++	// Output:
++	DWORD	dwActualSize;
++	HRESULT	ddRVal;
++} DD_GETDRIVERINFODATA, *PDD_GETDRIVERINFODATA;
++typedef DWORD (WINAPI *PDD_GETDRIVERINFO)(PDD_GETDRIVERINFODATA);
++
++
++/************************************************************************/
++/* Driver info structures                                               */
++/************************************************************************/
++
++typedef struct _DDNTCORECAPS
++{
++	DWORD	dwSize;
++	DWORD	dwCaps;
++	DWORD	dwCaps2;
++	DWORD	dwCKeyCaps;
++	DWORD	dwFXCaps;
++	DWORD	dwFXAlphaCaps;
++	DWORD	dwPalCaps;
++	DWORD	dwSVCaps;
++	DWORD	dwAlphaBltConstBitDepths;
++	DWORD	dwAlphaBltPixelBitDepths;
++	DWORD	dwAlphaBltSurfaceBitDepths;
++	DWORD	dwAlphaOverlayConstBitDepths;
++	DWORD	dwAlphaOverlayPixelBitDepths;
++	DWORD	dwAlphaOverlaySurfaceBitDepths;
++	DWORD	dwZBufferBitDepths;
++	DWORD	dwVidMemTotal;
++	DWORD	dwVidMemFree;
++	DWORD	dwMaxVisibleOverlays;
++	DWORD	dwCurrVisibleOverlays;
++	DWORD	dwNumFourCCCodes;
++	DWORD	dwAlignBoundarySrc;
++	DWORD	dwAlignSizeSrc;
++	DWORD	dwAlignBoundaryDest;
++	DWORD	dwAlignSizeDest;
++	DWORD	dwAlignStrideAlign;
++	DWORD	dwRops[DD_ROP_SPACE];
++	DDSCAPS	ddsCaps;
++	DWORD	dwMinOverlayStretch;
++	DWORD	dwMaxOverlayStretch;
++	DWORD	dwMinLiveVideoStretch;
++	DWORD	dwMaxLiveVideoStretch;
++	DWORD	dwMinHwCodecStretch;
++	DWORD	dwMaxHwCodecStretch;
++	DWORD	dwReserved1;
++	DWORD	dwReserved2;
++	DWORD	dwReserved3;
++	DWORD	dwSVBCaps;
++	DWORD	dwSVBCKeyCaps;
++	DWORD	dwSVBFXCaps;
++	DWORD	dwSVBRops[DD_ROP_SPACE];
++	DWORD	dwVSBCaps;
++	DWORD	dwVSBCKeyCaps;
++	DWORD	dwVSBFXCaps;
++	DWORD	dwVSBRops[DD_ROP_SPACE];
++	DWORD	dwSSBCaps;
++	DWORD	dwSSBCKeyCaps;
++	DWORD	dwSSBFXCaps;
++	DWORD	dwSSBRops[DD_ROP_SPACE];
++	DWORD	dwMaxVideoPorts;
++	DWORD	dwCurrVideoPorts;
++	DWORD	dwSVBCaps2;
++} DDNTCORECAPS, *PDDNTCORECAPS;
++
++
++typedef struct _DD_HALINFO_V4
++{
++	DWORD			dwSize;
++	VIDEOMEMORYINFO		vmiData;
++	DDNTCORECAPS		ddCaps;
++	PDD_GETDRIVERINFO	GetDriverInfo;
++	DWORD			dwFlags;
++} DD_HALINFO_V4, *PDD_HALINFO_V4;
++
++typedef struct _DD_HALINFO
++{
++	DWORD			dwSize;
++	VIDEOMEMORYINFO		vmiData;
++	DDNTCORECAPS		ddCaps;
++	PDD_GETDRIVERINFO	GetDriverInfo;
++	DWORD			dwFlags;
++	PVOID			lpD3DGlobalDriverData;
++	PVOID			lpD3DHALCallbacks;
++	PDD_D3DBUFCALLBACKS	lpD3DBufCallbacks;
++} DD_HALINFO, *PDD_HALINFO;
++
++
++typedef struct _DD_NONLOCALVIDMEMCAPS
++{
++	DWORD	dwSize;
++	DWORD	dwNLVBCaps;
++	DWORD	dwNLVBCaps2;
++	DWORD	dwNLVBCKeyCaps;
++	DWORD	dwNLVBFXCaps;
++	DWORD	dwNLVBRops[DD_ROP_SPACE];
++} DD_NONLOCALVIDMEMCAPS, *PDD_NONLOCALVIDMEMCAPS;
++
++
++typedef struct _DD_MORESURFACECAPS
++{
++	DWORD			dwSize;
++	DDSCAPSEX		ddsCapsMore;
++	struct tagNTExtendedHeapRestrictions
++	{
++		DDSCAPSEX	ddsCapsEx;
++		DDSCAPSEX	ddsCapsExAlt;
++	} ddsExtendedHeapRestrictions[1];
++} DD_MORESURFACECAPS, *PDD_MORESURFACECAPS;
++
++
++/*********************************************************/
++/* Kernel Callbacks                                      */
++/*********************************************************/
++typedef struct _DD_SYNCSURFACEDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_SURFACE_LOCAL	lpDDSurface;
++	DWORD			dwSurfaceOffset;
++	ULONG_PTR		fpLockPtr;
++	LONG			lPitch;
++	DWORD			dwOverlayOffset;
++	ULONG			dwDriverReserved1;
++	ULONG			dwDriverReserved2;
++	ULONG			dwDriverReserved3;
++	ULONG			dwDriverReserved4;
++	HRESULT			ddRVal;
++} DD_SYNCSURFACEDATA, *PDD_SYNCSURFACEDATA;
++typedef DWORD (WINAPI *PDD_KERNELCB_SYNCSURFACE)(PDD_SYNCSURFACEDATA);
++
++typedef struct _DD_SYNCVIDEOPORTDATA
++{
++	PDD_DIRECTDRAW_LOCAL	lpDD;
++	PDD_VIDEOPORT_LOCAL	lpVideoPort;
++	DWORD			dwOriginOffset;
++	DWORD			dwHeight;
++	DWORD			dwVBIHeight;
++	ULONG			dwDriverReserved1;
++	ULONG			dwDriverReserved2;
++	ULONG			dwDriverReserved3;
++	HRESULT			ddRVal;
++} DD_SYNCVIDEOPORTDATA, *PDD_SYNCVIDEOPORTDATA;
++typedef DWORD (WINAPI *PDD_KERNELCB_SYNCVIDEOPORT)(PDD_SYNCVIDEOPORTDATA);
++
++
++typedef struct DD_NTPRIVATEDRIVERCAPS
++{
++	DWORD			dwSize;
++	DWORD			dwPrivateCaps;
++} DD_NTPRIVATEDRIVERCAPS;
++
++typedef struct _DD_UPDATENONLOCALHEAPDATA
++{
++	PDD_DIRECTDRAW_GLOBAL	lpDD;
++	DWORD			dwHeap;
++	FLATPTR			fpGARTLin;
++	FLATPTR			fpGARTDev;
++	ULONG_PTR		ulPolicyMaxBytes;
++	HRESULT			ddRVal;
++	VOID *			UpdateNonLocalHeap;
++} DD_UPDATENONLOCALHEAPDATA, *PDD_UPDATENONLOCALHEAPDATA;
++
++typedef struct _DD_STEREOMODE
++{
++	DWORD		dwSize;
++	DWORD		dwHeight;
++	DWORD		dwWidth;
++	DWORD		dwBpp;
++	DWORD		dwRefreshRate;
++	WINBOOL		bSupported;
++} DD_STEREOMODE, *PDD_STEREOMODE;
++
++typedef struct _DD_MORECAPS
++{
++	DWORD		dwSize;
++	DWORD		dwAlphaCaps;
++	DWORD		dwSVBAlphaCaps;
++	DWORD		dwVSBAlphaCaps;
++	DWORD		dwSSBAlphaCaps;
++	DWORD		dwFilterCaps;
++	DWORD		dwSVBFilterCaps;
++	DWORD		dwVSBFilterCaps;
++	DWORD		dwSSBFilterCaps;
++} DD_MORECAPS, *PDD_MORECAPS;
++
++typedef struct _DD_CLIPPER_GLOBAL
++{
++	ULONG_PTR	dwReserved1;
++} DD_CLIPPER_GLOBAL;
++
++typedef struct _DD_CLIPPER_LOCAL
++{
++	ULONG_PTR	dwReserved1;
++} DD_CLIPPER_LOCAL;
++
++typedef struct _DD_PALETTE_LOCAL
++{
++	ULONG		dwReserved0;
++	ULONG_PTR	dwReserved1;
++} DD_PALETTE_LOCAL;
++
++
++typedef struct DD_KERNELCALLBACKS
++{
++	DWORD				dwSize;
++	DWORD				dwFlags;
++	PDD_KERNELCB_SYNCSURFACE	SyncSurfaceData;
++	PDD_KERNELCB_SYNCVIDEOPORT	SyncVideoPortData;
++} DD_KERNELCALLBACKS, *PDD_KERNELCALLBACKS;
++
++
++#define MAX_AUTOFLIP_BUFFERS				10
++#define DDSCAPS_EXECUTEBUFFER				DDSCAPS_RESERVED2
++#define DDSCAPS_COMMANDBUFFER				DDSCAPS_RESERVED3
++#define DDSCAPS_VERTEXBUFFER				DDSCAPS_RESERVED4
++#define DDPF_D3DFORMAT					0x00200000l
++#define D3DFORMAT_OP_TEXTURE				0x00000001L
++#define D3DFORMAT_OP_VOLUMETEXTURE			0x00000002L
++#define D3DFORMAT_OP_CUBETEXTURE			0x00000004L
++#define D3DFORMAT_OP_OFFSCREEN_RENDERTARGET		0x00000008L
++#define D3DFORMAT_OP_SAME_FORMAT_RENDERTARGET		0x00000010L
++#define D3DFORMAT_OP_ZSTENCIL				0x00000040L
++#define D3DFORMAT_OP_ZSTENCIL_WITH_ARBITRARY_COLOR_DEPTH  0x00000080L
++#define D3DFORMAT_OP_SAME_FORMAT_UP_TO_ALPHA_RENDERTARGET 0x00000100L
++#define D3DFORMAT_OP_DISPLAYMODE			0x00000400L
++#define D3DFORMAT_OP_3DACCELERATION			0x00000800L
++#define D3DFORMAT_OP_PIXELSIZE				0x00001000L
++#define D3DFORMAT_OP_CONVERT_TO_ARGB			0x00002000L
++#define D3DFORMAT_OP_OFFSCREENPLAIN			0x00004000L
++#define D3DFORMAT_OP_SRGBREAD				0x00008000L
++#define D3DFORMAT_OP_BUMPMAP				0x00010000L
++#define D3DFORMAT_OP_DMAP				0x00020000L
++#define D3DFORMAT_OP_NOFILTER				0x00040000L
++#define D3DFORMAT_MEMBEROFGROUP_ARGB			0x00080000L
++#define D3DFORMAT_OP_SRGBWRITE				0x00100000L
++#define D3DFORMAT_OP_NOALPHABLEND			0x00200000L
++#define D3DFORMAT_OP_AUTOGENMIPMAP			0x00400000L
++#define D3DFORMAT_OP_VERTEXTEXTURE			0x00800000L
++#define D3DFORMAT_OP_NOTEXCOORDWRAPNORMIP		0x01000000L
++#define DDHAL_PLEASEALLOC_BLOCKSIZE			0x00000002l
++#define DDHAL_PLEASEALLOC_USERMEM			0x00000004l
++
++#define VIDMEM_ISLINEAR					0x00000001l
++#define VIDMEM_ISRECTANGULAR				0x00000002l
++#define VIDMEM_ISHEAP					0x00000004l
++#define VIDMEM_ISNONLOCAL				0x00000008l
++#define VIDMEM_ISWC					0x00000010l
++#define VIDMEM_HEAPDISABLED				0x00000020l
++
++#define DDHAL_CREATESURFACEEX_SWAPHANDLES		0x00000001l
++
++#define DDHAL_KERNEL_SYNCSURFACEDATA			0x00000001l
++#define DDHAL_KERNEL_SYNCVIDEOPORTDATA			0x00000002l
++
++#define DDHAL_DRIVER_NOTHANDLED				0x00000000l
++#define DDHAL_DRIVER_HANDLED				0x00000001l
++#define DDHAL_DRIVER_NOCKEYHW				0x00000002l
++
++#define DDRAWISURF_HASCKEYSRCBLT			0x00000800L
++#define DDRAWISURF_HASPIXELFORMAT			0x00002000L
++#define DDRAWISURF_HASOVERLAYDATA			0x00004000L
++#define DDRAWISURF_FRONTBUFFER				0x04000000L
++#define DDRAWISURF_BACKBUFFER				0x08000000L
++#define DDRAWISURF_INVALID				0x10000000L
++#define DDRAWISURF_DRIVERMANAGED			0x40000000L
++
++#define ROP_HAS_SOURCE					0x00000001l
++#define ROP_HAS_PATTERN					0x00000002l
++#define ROP_HAS_SOURCEPATTERN		ROP_HAS_SOURCE | ROP_HAS_PATTERN
++
++#define DDHAL_EXEBUFCB32_CANCREATEEXEBUF		0x00000001l
++#define DDHAL_EXEBUFCB32_CREATEEXEBUF			0x00000002l
++#define DDHAL_EXEBUFCB32_DESTROYEXEBUF			0x00000004l
++#define DDHAL_EXEBUFCB32_LOCKEXEBUF			0x00000008l
++#define DDHAL_EXEBUFCB32_UNLOCKEXEBUF			0x00000010l
++
++#define DDHAL_D3DBUFCB32_CANCREATED3DBUF		DDHAL_EXEBUFCB32_CANCREATEEXEBUF
++#define DDHAL_D3DBUFCB32_CREATED3DBUF			DDHAL_EXEBUFCB32_CREATEEXEBUF
++#define DDHAL_D3DBUFCB32_DESTROYD3DBUF			DDHAL_EXEBUFCB32_DESTROYEXEBUF
++#define DDHAL_D3DBUFCB32_LOCKD3DBUF			DDHAL_EXEBUFCB32_LOCKEXEBUF
++#define DDHAL_D3DBUFCB32_UNLOCKD3DBUF			DDHAL_EXEBUFCB32_UNLOCKEXEBUF
++
++#define DDHALINFO_ISPRIMARYDISPLAY			0x00000001
++#define DDHALINFO_MODEXILLEGAL				0x00000002
++#define DDHALINFO_GETDRIVERINFOSET			0x00000004
++#define DDHALINFO_GETDRIVERINFO2			0x00000008
++
++#define DDRAWIVPORT_ON					0x00000001
++#define DDRAWIVPORT_SOFTWARE_AUTOFLIP			0x00000002
++#define DDRAWIVPORT_COLORKEYANDINTERP			0x00000004
++
++#define DDHAL_PRIVATECAP_ATOMICSURFACECREATION		0x00000001l
++#define DDHAL_PRIVATECAP_NOTIFYPRIMARYCREATION		0x00000002l
++#define DDHAL_PRIVATECAP_RESERVED1			0x00000004l
++
++#define DDRAWI_VPORTSTART				0x0001
++#define DDRAWI_VPORTSTOP				0x0002
++#define DDRAWI_VPORTUPDATE				0x0003
++#define DDRAWI_VPORTGETCOLOR				0x0001
++#define DDRAWI_VPORTSETCOLOR				0x0002
++
++#ifdef __cplusplus
++} /* extern "C" */
++#endif
++
++#endif /* GUID_DEFS_ONLY */
++
++#endif /* __DD_INCLUDED__ */
++
+diff -pruN a/include/mingw/dvp.h b/include/mingw/dvp.h
+--- a/include/mingw/dvp.h	1970-01-01 03:00:00.000000000 +0300
++++ b/include/mingw/dvp.h	2020-01-17 13:56:26.902126808 +0300
+@@ -0,0 +1,376 @@
++
++/* $Id$
++ *
++ * COPYRIGHT:            This file is in the public domain.
++ * PROJECT:              ReactOS kernel
++ * FILE:
++ * PURPOSE:              Directx headers
++ * PROGRAMMER:           Magnus Olsen (greatlrd)
++ *
++ */
++
++#ifndef __DVP_INCLUDED__
++#define __DVP_INCLUDED__
++
++#if defined( _WIN32 )  && !defined( _NO_COM )
++DEFINE_GUID(IID_IDDVideoPortContainer, 0x6C142760,0xA733,0x11CE,0xA5,0x21,0x00,0x20,0xAF,0x0B,0xE5,0x60);
++DEFINE_GUID(IID_IDirectDrawVideoPort, 0xB36D93E0,0x2B43,0x11CF,0xA2,0xDE,0x00,0xAA,0x00,0xB9,0x33,0x56);
++DEFINE_GUID(IID_IDirectDrawVideoPortNotify, 0xA655FB94,0x0589,0x4E57,0xB3,0x33,0x56,0x7A,0x89,0x46,0x8C,0x88);
++
++DEFINE_GUID(DDVPTYPE_E_HREFH_VREFH, 0x54F39980L,0xDA60,0x11CF,0x9B,0x06,0x00,0xA0,0xC9,0x03,0xA3,0xB8);
++DEFINE_GUID(DDVPTYPE_E_HREFH_VREFL, 0x92783220L,0xDA60,0x11CF,0x9B,0x06,0x00,0xA0,0xC9,0x03,0xA3,0xB8);
++DEFINE_GUID(DDVPTYPE_E_HREFL_VREFH, 0xA07A02E0L,0xDA60,0x11CF,0x9B,0x06,0x00,0xA0,0xC9,0x03,0xA3,0xB8);
++DEFINE_GUID(DDVPTYPE_E_HREFL_VREFL, 0xE09C77E0L,0xDA60,0x11CF,0x9B,0x06,0x00,0xA0,0xC9,0x03,0xA3,0xB8);
++DEFINE_GUID(DDVPTYPE_CCIR656, 0xFCA326A0L,0xDA60,0x11CF,0x9B,0x06,0x00,0xA0,0xC9,0x03,0xA3,0xB8);
++DEFINE_GUID(DDVPTYPE_BROOKTREE, 0x1352A560L,0xDA61,0x11CF,0x9B,0x06,0x00,0xA0,0xC9,0x03,0xA3,0xB8);
++DEFINE_GUID(DDVPTYPE_PHILIPS, 0x332CF160L,0xDA61,0x11CF,0x9B,0x06,0x00,0xA0,0xC9,0x03,0xA3,0xB8);
++#endif
++
++#ifndef GUID_DEFS_ONLY
++
++#if defined(_WIN32)  && !defined(_NO_COM)
++#define COM_NO_WINDOWS_H
++#include <objbase.h>
++#else
++#define IUnknown void
++#endif /* _WIN32 && !_NO_COM */
++
++#ifndef MAXULONG_PTR
++#define ULONG_PTR DWORD
++#endif
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++typedef struct _DDVIDEOPORTCONNECT
++{
++  DWORD dwSize;
++  DWORD dwPortWidth;
++  GUID guidTypeID;
++  DWORD dwFlags;
++  ULONG_PTR dwReserved1;
++} DDVIDEOPORTCONNECT, *LPDDVIDEOPORTCONNECT;
++
++typedef struct _DDVIDEOPORTDESC
++{
++  DWORD dwSize;
++  DWORD dwFieldWidth;
++  DWORD dwVBIWidth;
++  DWORD dwFieldHeight;
++  DWORD dwMicrosecondsPerField;
++  DWORD dwMaxPixelsPerSecond;
++  DWORD dwVideoPortID;
++  DWORD dwReserved1;
++  DDVIDEOPORTCONNECT VideoPortType;
++  ULONG_PTR dwReserved2;
++  ULONG_PTR dwReserved3;
++} DDVIDEOPORTDESC, *LPDDVIDEOPORTDESC;
++
++typedef struct _DDVIDEOPORTBANDWIDTH
++{
++  DWORD dwSize;
++  DWORD dwOverlay;
++  DWORD dwColorkey;
++  DWORD dwYInterpolate;
++  DWORD dwYInterpAndColorkey;
++  ULONG_PTR dwReserved1;
++  ULONG_PTR dwReserved2;
++} DDVIDEOPORTBANDWIDTH, *LPDDVIDEOPORTBANDWIDTH;
++
++typedef struct _DDVIDEOPORTCAPS
++{
++  DWORD dwSize;
++  DWORD dwFlags;
++  DWORD dwMaxWidth;
++  DWORD dwMaxVBIWidth;
++  DWORD dwMaxHeight;
++  DWORD dwVideoPortID;
++  DWORD dwCaps;
++  DWORD dwFX;
++  DWORD dwNumAutoFlipSurfaces;
++  DWORD dwAlignVideoPortBoundary;
++  DWORD dwAlignVideoPortPrescaleWidth;
++  DWORD dwAlignVideoPortCropBoundary;
++  DWORD dwAlignVideoPortCropWidth;
++  DWORD dwPreshrinkXStep;
++  DWORD dwPreshrinkYStep;
++  DWORD dwNumVBIAutoFlipSurfaces;
++  DWORD dwNumPreferredAutoflip;
++  WORD  wNumFilterTapsX;
++  WORD  wNumFilterTapsY;
++} DDVIDEOPORTCAPS, *LPDDVIDEOPORTCAPS;
++
++typedef struct _DDVIDEOPORTINFO
++{
++  DWORD dwSize;
++  DWORD dwOriginX;
++  DWORD dwOriginY;
++  DWORD dwVPFlags;
++  RECT rCrop;
++  DWORD dwPrescaleWidth;
++  DWORD dwPrescaleHeight;
++  LPDDPIXELFORMAT lpddpfInputFormat;
++  LPDDPIXELFORMAT lpddpfVBIInputFormat;
++  LPDDPIXELFORMAT lpddpfVBIOutputFormat;
++  DWORD dwVBIHeight;
++  ULONG_PTR dwReserved1;
++  ULONG_PTR dwReserved2;
++} DDVIDEOPORTINFO, *LPDDVIDEOPORTINFO;
++
++typedef struct _DDVIDEOPORTSTATUS
++{
++  DWORD dwSize;
++  WINBOOL bInUse;
++  DWORD dwFlags;
++  DWORD dwReserved1;
++  DDVIDEOPORTCONNECT VideoPortType;
++  ULONG_PTR dwReserved2;
++  ULONG_PTR dwReserved3;
++} DDVIDEOPORTSTATUS, *LPDDVIDEOPORTSTATUS;
++
++typedef struct _DDVIDEOPORTNOTIFY
++{
++  LARGE_INTEGER ApproximateTimeStamp;
++  LONG lField;
++  UINT dwSurfaceIndex;
++  LONG lDone;
++} DDVIDEOPORTNOTIFY, *LPDDVIDEOPORTNOTIFY;
++
++
++#define DDVPD_WIDTH				0x00000001
++#define DDVPD_HEIGHT				0x00000002
++#define DDVPD_ID				0x00000004
++#define DDVPD_CAPS				0x00000008
++#define DDVPD_FX				0x00000010
++#define DDVPD_AUTOFLIP				0x00000020
++#define DDVPD_ALIGN				0x00000040
++#define DDVPD_PREFERREDAUTOFLIP			0x00000080
++#define DDVPD_FILTERQUALITY			0x00000100
++#define DDVPCONNECT_DOUBLECLOCK			0x00000001
++#define DDVPCONNECT_VACT			0x00000002
++#define DDVPCONNECT_INVERTPOLARITY		0x00000004
++#define DDVPCONNECT_DISCARDSVREFDATA		0x00000008
++#define DDVPCONNECT_HALFLINE			0x00000010
++#define DDVPCONNECT_INTERLACED			0x00000020
++#define DDVPCONNECT_SHAREEVEN			0x00000040
++#define DDVPCONNECT_SHAREODD			0x00000080
++#define DDVPCAPS_AUTOFLIP			0x00000001
++#define DDVPCAPS_INTERLACED			0x00000002
++#define DDVPCAPS_NONINTERLACED			0x00000004
++#define DDVPCAPS_READBACKFIELD			0x00000008
++#define DDVPCAPS_READBACKLINE			0x00000010
++#define DDVPCAPS_SHAREABLE			0x00000020
++#define DDVPCAPS_SKIPEVENFIELDS			0x00000040
++#define DDVPCAPS_SKIPODDFIELDS			0x00000080
++#define DDVPCAPS_SYNCMASTER			0x00000100
++#define DDVPCAPS_VBISURFACE			0x00000200
++#define DDVPCAPS_COLORCONTROL			0x00000400
++#define DDVPCAPS_OVERSAMPLEDVBI			0x00000800
++#define DDVPCAPS_SYSTEMMEMORY			0x00001000
++#define DDVPCAPS_VBIANDVIDEOINDEPENDENT		0x00002000
++#define DDVPCAPS_HARDWAREDEINTERLACE		0x00004000
++#define DDVPFX_CROPTOPDATA			0x00000001
++#define DDVPFX_CROPX				0x00000002
++#define DDVPFX_CROPY				0x00000004
++#define DDVPFX_INTERLEAVE			0x00000008
++#define DDVPFX_MIRRORLEFTRIGHT			0x00000010
++#define DDVPFX_MIRRORUPDOWN			0x00000020
++#define DDVPFX_PRESHRINKX			0x00000040
++#define DDVPFX_PRESHRINKY			0x00000080
++#define DDVPFX_PRESHRINKXB			0x00000100
++#define DDVPFX_PRESHRINKYB			0x00000200
++#define DDVPFX_PRESHRINKXS			0x00000400
++#define DDVPFX_PRESHRINKYS			0x00000800
++#define DDVPFX_PRESTRETCHX			0x00001000
++#define DDVPFX_PRESTRETCHY			0x00002000
++#define DDVPFX_PRESTRETCHXN			0x00004000
++#define DDVPFX_PRESTRETCHYN			0x00008000
++#define DDVPFX_VBICONVERT			0x00010000
++#define DDVPFX_VBINOSCALE			0x00020000
++#define DDVPFX_IGNOREVBIXCROP			0x00040000
++#define DDVPFX_VBINOINTERLEAVE			0x00080000
++#define DDVP_AUTOFLIP				0x00000001
++#define DDVP_CONVERT				0x00000002
++#define DDVP_CROP				0x00000004
++#define DDVP_INTERLEAVE				0x00000008
++#define DDVP_MIRRORLEFTRIGHT			0x00000010
++#define DDVP_MIRRORUPDOWN			0x00000020
++#define DDVP_PRESCALE				0x00000040
++#define DDVP_SKIPEVENFIELDS			0x00000080
++#define DDVP_SKIPODDFIELDS			0x00000100
++#define DDVP_SYNCMASTER				0x00000200
++#define DDVP_VBICONVERT				0x00000400
++#define DDVP_VBINOSCALE				0x00000800
++#define DDVP_OVERRIDEBOBWEAVE			0x00001000
++#define DDVP_IGNOREVBIXCROP			0x00002000
++#define DDVP_VBINOINTERLEAVE			0x00004000
++#define DDVP_HARDWAREDEINTERLACE		0x00008000
++#define DDVPFORMAT_VIDEO			0x00000001
++#define DDVPFORMAT_VBI				0x00000002
++#define DDVPTARGET_VIDEO			0x00000001
++#define DDVPTARGET_VBI				0x00000002
++#define DDVPWAIT_BEGIN				0x00000001
++#define DDVPWAIT_END				0x00000002
++#define DDVPWAIT_LINE				0x00000003
++#define DDVPFLIP_VIDEO				0x00000001
++#define DDVPFLIP_VBI				0x00000002
++#define DDVPSQ_NOSIGNAL				0x00000001
++#define DDVPSQ_SIGNALOK				0x00000002
++#define DDVPB_VIDEOPORT				0x00000001
++#define DDVPB_OVERLAY				0x00000002
++#define DDVPB_TYPE				0x00000004
++#define DDVPBCAPS_SOURCE			0x00000001
++#define DDVPBCAPS_DESTINATION			0x00000002
++#define DDVPCREATE_VBIONLY			0x00000001
++#define DDVPCREATE_VIDEOONLY			0x00000002
++#define DDVPSTATUS_VBIONLY			0x00000001
++#define DDVPSTATUS_VIDEOONLY			0x00000002
++
++struct IDirectDraw;
++struct IDirectDrawSurface;
++struct IDirectDrawPalette;
++struct IDirectDrawClipper;
++typedef struct IDirectDrawVideoPort *LPDIRECTDRAWVIDEOPORT;
++typedef struct IDDVideoPortContainer *LPDDVIDEOPORTCONTAINER;
++typedef struct IDirectDrawVideoPortNotify *LPDIRECTDRAWVIDEOPORTNOTIFY;
++
++typedef struct IDDVideoPortContainerVtbl DDVIDEOPORTCONTAINERCALLBACKS;
++typedef struct IDirectDrawVideoPortVtbl DIRECTDRAWVIDEOPORTCALLBACKS;
++typedef struct IDirectDrawVideoPortNotifyVtbl DIRECTDRAWVIDEOPORTNOTIFYCALLBACKS;
++
++typedef HRESULT (*LPDDENUMVIDEOCALLBACK)(LPDDVIDEOPORTCAPS, LPVOID);
++
++
++#if defined( _WIN32 ) && !defined( _NO_COM )
++#undef INTERFACE
++#define INTERFACE IDDVideoPortContainer
++DECLARE_INTERFACE_( IDDVideoPortContainer, IUnknown )
++{
++    STDMETHOD(QueryInterface) (THIS_ REFIID riid, LPVOID *ppvObj) PURE;
++    STDMETHOD_(ULONG,AddRef) (THIS)  PURE;
++    STDMETHOD_(ULONG,Release) (THIS) PURE;
++    STDMETHOD(CreateVideoPort)(THIS_ DWORD, LPDDVIDEOPORTDESC, LPDIRECTDRAWVIDEOPORT *, IUnknown *) PURE;
++    STDMETHOD(EnumVideoPorts)(THIS_ DWORD, LPDDVIDEOPORTCAPS, LPVOID,LPDDENUMVIDEOCALLBACK ) PURE;
++    STDMETHOD(GetVideoPortConnectInfo)(THIS_ DWORD, LPDWORD, LPDDVIDEOPORTCONNECT ) PURE;
++    STDMETHOD(QueryVideoPortStatus)(THIS_ DWORD, LPDDVIDEOPORTSTATUS ) PURE;
++};
++
++#if !defined(__cplusplus) || defined(CINTERFACE)
++# define IVideoPortContainer_QueryInterface(p, a, b)		(p)->lpVtbl->QueryInterface(p, a, b)
++# define IVideoPortContainer_AddRef(p)				(p)->lpVtbl->AddRef(p)
++# define IVideoPortContainer_Release(p)				(p)->lpVtbl->Release(p)
++# define IVideoPortContainer_CreateVideoPort(p, a, b, c, d)	(p)->lpVtbl->CreateVideoPort(p, a, b, c, d)
++# define IVideoPortContainer_EnumVideoPorts(p, a, b, c, d)	(p)->lpVtbl->EnumVideoPorts(p, a, b, c, d)
++# define IVideoPortContainer_GetVideoPortConnectInfo(p, a, b, c) (p)->lpVtbl->GetVideoPortConnectInfo(p, a, b, c)
++# define IVideoPortContainer_QueryVideoPortStatus(p, a, b)	(p)->lpVtbl->QueryVideoPortStatus(p, a, b)
++#else
++# define IVideoPortContainer_QueryInterface(p, a, b)		(p)->QueryInterface(a, b)
++# define IVideoPortContainer_AddRef(p)				(p)->AddRef()
++# define IVideoPortContainer_Release(p)				(p)->Release()
++# define IVideoPortContainer_CreateVideoPort(p, a, b, c, d)	(p)->CreateVideoPort(a, b, c, d)
++# define IVideoPortContainer_EnumVideoPorts(p, a, b, c, d)	(p)->EnumVideoPorts(a, b, c, d)
++# define IVideoPortContainer_GetVideoPortConnectInfo(p, a, b, c) (p)->GetVideoPortConnectInfo(a, b, c)
++# define IVideoPortContainer_QueryVideoPortStatus(p, a, b)	(p)->QueryVideoPortStatus(a, b)
++#endif /* !__cplusplus || defined(CINTERFACE) */
++#endif /* defined( _WIN32 ) && !defined( _NO_COM ) */
++
++#if defined( _WIN32 ) && !defined( _NO_COM )
++#undef INTERFACE
++#define INTERFACE IDirectDrawVideoPort
++DECLARE_INTERFACE_( IDirectDrawVideoPort, IUnknown )
++{
++    STDMETHOD(QueryInterface) (THIS_ REFIID riid, LPVOID * ppvObj) PURE;
++    STDMETHOD_(ULONG,AddRef) (THIS)  PURE;
++    STDMETHOD_(ULONG,Release) (THIS) PURE;
++    STDMETHOD(Flip)(THIS_ LPDIRECTDRAWSURFACE, DWORD) PURE;
++    STDMETHOD(GetBandwidthInfo)(THIS_ LPDDPIXELFORMAT, DWORD, DWORD, DWORD, LPDDVIDEOPORTBANDWIDTH) PURE;
++    STDMETHOD(GetColorControls)(THIS_ LPDDCOLORCONTROL) PURE;
++    STDMETHOD(GetInputFormats)(THIS_ LPDWORD, LPDDPIXELFORMAT, DWORD) PURE;
++    STDMETHOD(GetOutputFormats)(THIS_ LPDDPIXELFORMAT, LPDWORD, LPDDPIXELFORMAT, DWORD) PURE;
++    STDMETHOD(GetFieldPolarity)(THIS_ LPBOOL) PURE;
++    STDMETHOD(GetVideoLine)(THIS_ LPDWORD) PURE;
++    STDMETHOD(GetVideoSignalStatus)(THIS_ LPDWORD) PURE;
++    STDMETHOD(SetColorControls)(THIS_ LPDDCOLORCONTROL) PURE;
++    STDMETHOD(SetTargetSurface)(THIS_ LPDIRECTDRAWSURFACE, DWORD) PURE;
++    STDMETHOD(StartVideo)(THIS_ LPDDVIDEOPORTINFO) PURE;
++    STDMETHOD(StopVideo)(THIS) PURE;
++    STDMETHOD(UpdateVideo)(THIS_ LPDDVIDEOPORTINFO) PURE;
++    STDMETHOD(WaitForSync)(THIS_ DWORD, DWORD, DWORD) PURE;
++};
++
++#if !defined(__cplusplus) || defined(CINTERFACE)
++# define IVideoPort_QueryInterface(p,a,b)		(p)->lpVtbl->QueryInterface(p,a,b)
++# define IVideoPort_AddRef(p)				(p)->lpVtbl->AddRef(p)
++# define IVideoPort_Release(p)				(p)->lpVtbl->Release(p)
++# define IVideoPort_SetTargetSurface(p,a,b)		(p)->lpVtbl->SetTargetSurface(p,a,b)
++# define IVideoPort_Flip(p,a,b)				(p)->lpVtbl->Flip(p,a,b)
++# define IVideoPort_GetBandwidthInfo(p,a,b,c,d,e)	(p)->lpVtbl->GetBandwidthInfo(p,a,b,c,d,e)
++# define IVideoPort_GetColorControls(p,a) 		(p)->lpVtbl->GetColorControls(p,a)
++# define IVideoPort_GetInputFormats(p,a,b,c)		(p)->lpVtbl->GetInputFormats(p,a,b,c)
++# define IVideoPort_GetOutputFormats(p,a,b,c,d)		(p)->lpVtbl->GetOutputFormats(p,a,b,c,d)
++# define IVideoPort_GetFieldPolarity(p,a)		(p)->lpVtbl->GetFieldPolarity(p,a)
++# define IVideoPort_GetVideoLine(p,a)			(p)->lpVtbl->GetVideoLine(p,a)
++# define IVideoPort_GetVideoSignalStatus(p,a)		(p)->lpVtbl->GetVideoSignalStatus(p,a)
++# define IVideoPort_SetColorControls(p,a)		(p)->lpVtbl->SetColorControls(p,a)
++# define IVideoPort_StartVideo(p,a)			(p)->lpVtbl->StartVideo(p,a)
++# define IVideoPort_StopVideo(p)			(p)->lpVtbl->StopVideo(p)
++# define IVideoPort_UpdateVideo(p,a)			(p)->lpVtbl->UpdateVideo(p,a)
++# define IVideoPort_WaitForSync(p,a,b,c)		(p)->lpVtbl->WaitForSync(p,a,b,c)
++#else
++# define IVideoPort_QueryInterface(p,a,b)		(p)->QueryInterface(a,b)
++# define IVideoPort_AddRef(p)				(p)->AddRef()
++# define IVideoPort_Release(p)				(p)->Release()
++# define IVideoPort_SetTargetSurface(p,a,b)		(p)->SetTargetSurface(a,b)
++# define IVideoPort_Flip(p,a,b)				(p)->Flip(a,b)
++# define IVideoPort_GetBandwidthInfo(p,a,b,c,d,e)	(p)->GetBandwidthInfo(a,b,c,d,e)
++# define IVideoPort_GetColorControls(p,a) 		(p)->GetColorControls(a)
++# define IVideoPort_GetInputFormats(p,a,b,c)		(p)->GetInputFormats(a,b,c)
++# define IVideoPort_GetOutputFormats(p,a,b,c,d)		(p)->GetOutputFormats(a,b,c,d)
++# define IVideoPort_GetFieldPolarity(p,a)		(p)->GetFieldPolarity(a)
++# define IVideoPort_GetVideoLine(p,a)			(p)->GetVideoLine(a)
++# define IVideoPort_GetVideoSignalStatus(p,a)		(p)->GetVideoSignalStatus(a)
++# define IVideoPort_SetColorControls(p,a)		(p)->SetColorControls(a)
++# define IVideoPort_StartVideo(p,a)			(p)->StartVideo(a)
++# define IVideoPort_StopVideo(p)			(p)->StopVideo()
++# define IVideoPort_UpdateVideo(p,a)			(p)->UpdateVideo(a)
++# define IVideoPort_WaitForSync(p,a,b,c)		(p)->WaitForSync(a,b,c)
++#endif /* !__cplusplus || defined(CINTERFACE) */
++#endif /* defined( _WIN32 ) && !defined( _NO_COM ) */
++
++#if defined( _WIN32 ) && !defined( _NO_COM )
++#undef INTERFACE
++#define INTERFACE IDirectDrawVideoPortNotify
++
++DECLARE_INTERFACE_( IDirectDrawVideoPortNotify, IUnknown )
++{
++    STDMETHOD(QueryInterface) (THIS_ REFIID riid, LPVOID * ppvObj) PURE;
++    STDMETHOD_(ULONG,AddRef) (THIS)  PURE;
++    STDMETHOD_(ULONG,Release) (THIS) PURE;
++    STDMETHOD(AcquireNotification)(THIS_ HANDLE *, LPDDVIDEOPORTNOTIFY) PURE;
++    STDMETHOD(ReleaseNotification)(THIS_ HANDLE) PURE;
++};
++
++#if !defined(__cplusplus) || defined(CINTERFACE)
++# define IVideoPortNotify_QueryInterface(p,a,b)		(p)->lpVtbl->QueryInterface(p,a,b)
++# define IVideoPortNotify_AddRef(p)			(p)->lpVtbl->AddRef(p)
++# define IVideoPortNotify_Release(p)			(p)->lpVtbl->Release(p)
++# define IVideoPortNotify_AcquireNotification(p,a,b)	(p)->lpVtbl->AcquireNotification(p,a,b)
++# define IVideoPortNotify_ReleaseNotification(p,a)	(p)->lpVtbl->ReleaseNotification(p,a)
++#else
++# define IVideoPortNotify_QueryInterface(p,a,b)		(p)->QueryInterface(a,b)
++# define IVideoPortNotify_AddRef(p)			(p)->AddRef()
++# define IVideoPortNotify_Release(p)			(p)->Release()
++# define IVideoPortNotify_AcquireNotification(p,a,b)	(p)->lpVtbl->AcquireNotification(a,b)
++# define IVideoPortNotify_ReleaseNotification(p,a)	(p)->lpVtbl->ReleaseNotification(a)
++#endif /* !__cplusplus || defined(CINTERFACE) */
++#endif /* defined( _WIN32 ) && !defined( _NO_COM ) */
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* ! GUID_DEFS_ONLY */
++
++#endif /* __DVP_INCLUDED__ */
++
+diff -pruN a/include/mingw/mscat_ext.h b/include/mingw/mscat_ext.h
+--- a/include/mingw/mscat_ext.h	1970-01-01 03:00:00.000000000 +0300
++++ b/include/mingw/mscat_ext.h	2020-01-17 13:56:26.902126808 +0300
+@@ -0,0 +1,54 @@
++#include <mscat.h>
++
++#define CRYPTCAT_ATTR_AUTHENTICATED     0x10000000
++#define CRYPTCAT_ATTR_UNAUTHENTICATED   0x20000000
++#define CRYPTCAT_ATTR_NAMEASCII         0x00000001
++#define CRYPTCAT_ATTR_NAMEOBJID         0x00000002
++#define CRYPTCAT_ATTR_DATAASCII         0x00010000
++#define CRYPTCAT_ATTR_DATABASE64        0x00020000
++#define CRYPTCAT_ATTR_DATAREPLACE       0x00040000
++
++typedef struct CRYPTCATSTORE_ {
++	DWORD      cbStruct;
++	DWORD      dwPublicVersion;
++	LPWSTR     pwszP7File;
++	HCRYPTPROV hProv;
++	DWORD      dwEncodingType;
++	DWORD      fdwStoreFlags;
++	HANDLE     hReserved;
++	HANDLE     hAttrs;
++	HCRYPTMSG  hCryptMsg;
++	HANDLE     hSorted;
++} CRYPTCATSTORE;
++
++CRYPTCATATTRIBUTE* WINAPI CryptCATPutCatAttrInfo(
++    HANDLE hCatalog,
++    LPWSTR pwszReferenceTag,
++    DWORD dwAttrTypeAndAction,
++    DWORD cbData,
++    BYTE *pbData
++);
++
++CRYPTCATMEMBER* WINAPI CryptCATPutMemberInfo(
++    HANDLE hCatalog,
++    LPWSTR pwszFileName,
++    LPWSTR pwszReferenceTag,
++    GUID *pgSubjectType,
++    DWORD dwCertVersion,
++    DWORD cbSIPIndirectData,
++    BYTE *pbSIPIndirectData
++);
++
++CRYPTCATATTRIBUTE* WINAPI CryptCATPutAttrInfo(
++    HANDLE hCatalog,
++    CRYPTCATMEMBER *pCatMember,
++    LPWSTR pwszReferenceTag,
++    DWORD dwAttrTypeAndAction,
++    DWORD cbData,
++    BYTE *pbData
++);
++
++BOOL WINAPI *CryptCATPersistStore(
++    HANDLE hCatalog
++);
++
+diff -pruN a/include/mingw/setupapifn.h b/include/mingw/setupapifn.h
+--- a/include/mingw/setupapifn.h	1970-01-01 03:00:00.000000000 +0300
++++ b/include/mingw/setupapifn.h	2020-01-17 13:56:26.902126808 +0300
+@@ -0,0 +1,4 @@
++#define SetupDiGetDeviceProperty __MINGW_NAME_AW(SetupDiGetDeviceProperty)
++
++WINSETUPAPI WINBOOL WINAPI SetupDiGetDevicePropertyW(HDEVINFO DeviceInfoSet,PSP_DEVINFO_DATA DeviceInfoData,const DEVPROPKEY *PropertyKey,DEVPROPTYPE *PropertyType,PBYTE PropertyBuffer,DWORD PropertyBufferSize,PDWORD RequiredSize,DWORD Flags);
++
+diff -pruN a/include/mingw/videoprt.def b/include/mingw/videoprt.def
+--- a/include/mingw/videoprt.def	1970-01-01 03:00:00.000000000 +0300
++++ b/include/mingw/videoprt.def	2020-01-17 13:56:26.902126808 +0300
+@@ -0,0 +1,13 @@
++LIBRARY videoprt.sys
++EXPORTS
++VideoPortAcquireSpinLock
++VideoPortCreateSpinLock
++VideoPortDebugPrint
++VideoPortInitialize
++VideoPortReleaseSpinLock
++VideoPortZeroMemory
++VideoPortAcquireSpinLock@12
++VideoPortCreateSpinLock@8
++VideoPortInitialize@16
++VideoPortReleaseSpinLock@12
++VideoPortZeroMemory@8
+diff -pruN a/include/mingw/win32k.def b/include/mingw/win32k.def
+--- a/include/mingw/win32k.def	1970-01-01 03:00:00.000000000 +0300
++++ b/include/mingw/win32k.def	2020-01-17 13:56:26.902126808 +0300
+@@ -0,0 +1,33 @@
++LIBRARY win32k.sys
++EXPORTS
++EngAllocMem
++EngCreateDeviceBitmap
++EngCreateDeviceSurface
++EngCreateDriverObj
++EngCreatePalette
++EngDebugPrint
++EngDeleteDriverObj
++EngDeletePalette
++EngDeleteSurface
++EngModifySurface
++EngDeviceIoControl
++EngFreeMem
++EngGetLastError
++EngMapEvent
++EngSetEvent
++EngUnmapEvent
++EngAllocMem@12
++EngCreateDeviceBitmap@16
++EngCreateDeviceSurface@16
++EngDeleteDriverObj@12
++EngCreatePalette@24
++EngDeleteDriverObj@12
++EngDeletePalette@4
++EngDeleteSurface@4
++EngModifySurface@32
++EngDeviceIoControl@28
++EngFreeMem@4
++EngGetLastError@0
++EngMapEvent@20
++EngSetEvent@4
++EngUnmapEvent@4
+diff -pruN a/include/mscat32.def b/include/mscat32.def
+--- a/include/mscat32.def	1970-01-01 03:00:00.000000000 +0300
++++ b/include/mscat32.def	2020-01-17 13:56:26.903126810 +0300
+@@ -0,0 +1,44 @@
++; 
++; Exports of file MSCAT32.dll
++;
++; Autogenerated by gen_exportdef
++; Written by Kai Tietz, 2007
++;
++LIBRARY MSCAT32.dll
++EXPORTS
++CryptCATVerifyMember
++CatalogCompactHashDatabase
++CryptCATAdminAcquireContext
++CryptCATAdminAddCatalog
++CryptCATAdminCalcHashFromFileHandle
++CryptCATAdminEnumCatalogFromHash
++CryptCATAdminReleaseCatalogContext
++CryptCATAdminReleaseContext
++CryptCATCDFClose
++CryptCATCDFEnumAttributes
++CryptCATCDFEnumAttributesWithCDFTag
++CryptCATCDFEnumCatAttributes
++CryptCATCDFEnumMembers
++CryptCATCDFEnumMembersByCDFTag
++CryptCATCDFEnumMembersByCDFTagEx
++CryptCATCDFOpen
++CryptCATCatalogInfoFromContext
++CryptCATClose
++CryptCATEnumerateAttr
++CryptCATEnumerateCatAttr
++CryptCATEnumerateMember
++CryptCATGetAttrInfo
++CryptCATGetCatAttrInfo
++CryptCATGetMemberInfo
++CryptCATHandleFromStore
++CryptCATOpen
++CryptCATPersistStore
++CryptCATPutAttrInfo
++CryptCATPutCatAttrInfo
++CryptCATPutMemberInfo
++CryptCATStoreFromHandle
++DllRegisterServer
++DllUnregisterServer
++IsCatalogFile
++MsCatConstructHashTag
++MsCatFreeHashTag
+diff -pruN a/include/mssign32.def b/include/mssign32.def
+--- a/include/mssign32.def	1970-01-01 03:00:00.000000000 +0300
++++ b/include/mssign32.def	2020-01-17 13:56:26.903126810 +0300
+@@ -0,0 +1,38 @@
++; 
++; Exports of file MSSIGN32.dll
++;
++; Autogenerated by gen_exportdef
++; Written by Kai Tietz, 2007
++;
++LIBRARY MSSIGN32.dll
++EXPORTS
++DllRegisterServer
++DllUnregisterServer
++FreeCryptProvFromCert
++GetCryptProvFromCert
++PvkFreeCryptProv
++PvkGetCryptProv
++PvkPrivateKeyAcquireContext
++PvkPrivateKeyAcquireContextA
++PvkPrivateKeyAcquireContextFromMemory
++PvkPrivateKeyAcquireContextFromMemoryA
++PvkPrivateKeyLoad
++PvkPrivateKeyLoadA
++PvkPrivateKeyLoadFromMemory
++PvkPrivateKeyLoadFromMemoryA
++PvkPrivateKeyReleaseContext
++PvkPrivateKeyReleaseContextA
++PvkPrivateKeySave
++PvkPrivateKeySaveA
++PvkPrivateKeySaveToMemory
++PvkPrivateKeySaveToMemoryA
++SignError
++SignerAddTimeStampResponse
++SignerAddTimeStampResponseEx
++SignerCreateTimeStampRequest
++SignerFreeSignerContext
++SignerSign
++SignerSignEx
++SignerTimeStamp
++SignerTimeStampEx
++SpcGetCertFromKey
+diff -pruN a/include/mssign32.h b/include/mssign32.h
+--- a/include/mssign32.h	1970-01-01 03:00:00.000000000 +0300
++++ b/include/mssign32.h	2020-01-17 13:56:26.903126810 +0300
+@@ -0,0 +1,205 @@
++//-----------------------------------------------------------------------------
++// This header file was assembled from MSDN content.
++//
++// Jeff Fitzsimons, 9/2008.
++//-----------------------------------------------------------------------------
++
++#include <windows.h>
++#include <wincrypt.h>
++
++#ifdef __MINGW32__
++#include <driverspecs.h>
++#define __in_opt SAL__in_opt
++#define __out_bcount_opt SAL__out_bcount_opt
++#endif
++
++//-----------------------------------------------------------------------------
++// Structures and constants.
++//-----------------------------------------------------------------------------
++
++const DWORD SPC_EXC_PE_PAGE_HASHES_FLAG         = 0x10;     // Unsupported on Windows Server 2k3, XP, and 2k.
++const DWORD SPC_INC_PE_IMPORT_ADDR_TABLE_FLAG   = 0x20;     // Unsupported.
++const DWORD SPC_INC_PE_DEBUG_INFO_FLAG          = 0x40;     // Unsupported.
++const DWORD SPC_INC_PE_RESOURCES_FLAG           = 0x80;     // Unsupported.
++const DWORD SPC_INC_PE_PAGE_HASHES_FLAG         = 0x100;    // Unsupported on Windows Server 2k3, XP, and 2k.
++
++typedef struct _SIGNER_FILE_INFO 
++{
++    DWORD cbSize;
++    LPCWSTR pwszFileName;
++    HANDLE hFile;
++} SIGNER_FILE_INFO, *PSIGNER_FILE_INFO;
++
++typedef struct _SIGNER_BLOB_INFO 
++{
++    DWORD cbSize;
++    GUID *pGuidSubject;
++    DWORD cbBlob;
++    BYTE *pbBlob;
++    LPCWSTR pwszDisplayName;
++} SIGNER_BLOB_INFO, *PSIGNER_BLOB_INFO;
++
++const DWORD SIGNER_SUBJECT_BLOB = 0x2;      // The subject is a BLOB.
++const DWORD SIGNER_SUBJECT_FILE = 0x1;      // The subject is a file.
++
++typedef struct _SIGNER_SUBJECT_INFO 
++{
++    DWORD cbSize;
++    DWORD *pdwIndex;            // Reserved.  Must be zero.
++    DWORD dwSubjectChoice;
++    union 
++    {
++        SIGNER_FILE_INFO *pSignerFileInfo;
++        SIGNER_BLOB_INFO *pSignerBlobInfo;
++    };
++} SIGNER_SUBJECT_INFO, *PSIGNER_SUBJECT_INFO;
++
++typedef struct _SIGNER_CERT_STORE_INFO 
++{
++    DWORD cbSize;
++    PCCERT_CONTEXT pSigningCert;
++    DWORD dwCertPolicy;
++    HCERTSTORE hCertStore;
++} SIGNER_CERT_STORE_INFO, *PSIGNER_CERT_STORE_INFO;
++
++// SIGNER_SPC_CHAIN_INFO
++const DWORD SIGNER_CERT_POLICY_STORE         = 1;
++const DWORD SIGNER_CERT_POLICY_CHAIN         = 2;
++const DWORD SIGNER_CERT_POLICY_CHAIN_NO_ROOT = 8;
++
++typedef struct _SIGNER_SPC_CHAIN_INFO 
++{
++    DWORD cbSize;
++    LPCWSTR pwszSpcFile;
++    DWORD dwCertPolicy;
++    HCERTSTORE hCertStore;
++} SIGNER_SPC_CHAIN_INFO, *PSIGNER_SPC_CHAIN_INFO;
++
++const DWORD SIGNER_CERT_SPC_FILE    = 1;
++const DWORD SIGNER_CERT_STORE       = 2;
++const DWORD SIGNER_CERT_SPC_CHAIN   = 3;
++
++typedef struct _SIGNER_CERT 
++{
++    DWORD cbSize;
++    DWORD dwCertChoice;
++    union 
++    {
++        LPCWSTR pwszSpcFile;
++        SIGNER_CERT_STORE_INFO *pCertStoreInfo;
++        SIGNER_SPC_CHAIN_INFO *pSpcChainInfo;
++    };
++    HWND hwnd;
++} SIGNER_CERT, *PSIGNER_CERT;
++
++typedef struct _SIGNER_ATTR_AUTHCODE 
++{
++    DWORD cbSize;
++    BOOL fCommercial;
++    BOOL fIndividual;
++    LPCWSTR pwszName;
++    LPCWSTR pwszInfo;
++} SIGNER_ATTR_AUTHCODE, *PSIGNER_ATTR_AUTHCODE;
++
++const DWORD SIGNER_AUTHCODE_ATTR    = 1;    // Signature has Authenticode attributes.
++const DWORD SIGNER_NO_ATTR          = 0;    // Signature does not have Authenticode attributes.
++
++typedef struct _SIGNER_SIGNATURE_INFO 
++{
++    DWORD cbSize;
++    ALG_ID algidHash;                       // Defined in WinCrypt.h
++    DWORD dwAttrChoice;
++    union 
++    {
++        SIGNER_ATTR_AUTHCODE *pAttrAuthcode;
++    };
++    PCRYPT_ATTRIBUTES psAuthenticated;
++    PCRYPT_ATTRIBUTES psUnauthenticated;
++} SIGNER_SIGNATURE_INFO, *PSIGNER_SIGNATURE_INFO;
++
++const DWORD PVK_TYPE_FILE_NAME      = 0x1;
++const DWORD PVK_TYPE_KEYCONTAINER   = 0x2;
++
++typedef struct _SIGNER_PROVIDER_INFO {
++    DWORD cbSize;
++    LPCWSTR pwszProviderName;
++    DWORD dwProviderType;
++    DWORD dwKeySpec;
++    DWORD dwPvkChoice;
++    union 
++    {
++        LPWSTR pwszPvkFileName;
++        LPWSTR pwszKeyContainer;
++    };
++} SIGNER_PROVIDER_INFO, *PSIGNER_PROVIDER_INFO;
++
++typedef struct _SIGNER_CONTEXT {
++    DWORD cbSize;
++    DWORD cbBlob;
++    BYTE *pbBlob;
++} SIGNER_CONTEXT, *PSIGNER_CONTEXT;
++
++//-----------------------------------------------------------------------------
++// Function declarations.
++//
++// Each function is declared normally, as in MSDN documentation, and is also
++// provided as a function pointer typedef.  Use the function pointer typedef
++// with LoadLibrary/GetProcAddress in order to dynamically call the functions
++// at runtime.
++//
++// Example:
++//    SignerSignPtr pSignerSign = 
++//        (SignerSignPtr)GetProcAddress(hModule, "SignerSign");
++//-----------------------------------------------------------------------------
++
++HRESULT WINAPI SignerSign(
++    __in      SIGNER_SUBJECT_INFO *pSubjectInfo,
++    __in      SIGNER_CERT *pSignerCert,
++    __in      SIGNER_SIGNATURE_INFO *pSignatureInfo,
++    __in_opt  SIGNER_PROVIDER_INFO *pProviderInfo,
++    __in_opt  LPCWSTR pwszHttpTimeStamp,
++    __in_opt  PCRYPT_ATTRIBUTES psRequest,
++    __in_opt  LPVOID pSipData
++);
++
++typedef HRESULT (WINAPI *SignerSignPtr)(
++    __in      SIGNER_SUBJECT_INFO *pSubjectInfo,
++    __in      SIGNER_CERT *pSignerCert,
++    __in      SIGNER_SIGNATURE_INFO *pSignatureInfo,
++    __in_opt  SIGNER_PROVIDER_INFO *pProviderInfo,
++    __in_opt  LPCWSTR pwszHttpTimeStamp,
++    __in_opt  PCRYPT_ATTRIBUTES psRequest,
++    __in_opt  LPVOID pSipData
++);
++
++HRESULT WINAPI SignerSignEx(
++    __in      DWORD dwFlags,
++    __in      SIGNER_SUBJECT_INFO *pSubjectInfo,
++    __in      SIGNER_CERT *pSignerCert,
++    __in      SIGNER_SIGNATURE_INFO *pSignatureInfo,
++    __in_opt  SIGNER_PROVIDER_INFO *pProviderInfo,
++    __in_opt  LPCWSTR pwszHttpTimeStamp,
++    __in_opt  PCRYPT_ATTRIBUTES psRequest,
++    __in_opt  LPVOID pSipData,
++    __out     SIGNER_CONTEXT **ppSignerContext
++);
++
++typedef HRESULT (WINAPI *SignerSignExPtr)(
++    __in      DWORD dwFlags,
++    __in      SIGNER_SUBJECT_INFO *pSubjectInfo,
++    __in      SIGNER_CERT *pSignerCert,
++    __in      SIGNER_SIGNATURE_INFO *pSignatureInfo,
++    __in_opt  SIGNER_PROVIDER_INFO *pProviderInfo,
++    __in_opt  LPCWSTR pwszHttpTimeStamp,
++    __in_opt  PCRYPT_ATTRIBUTES psRequest,
++    __in_opt  LPVOID pSipData,
++    __out     SIGNER_CONTEXT **ppSignerContext
++);
++
++HRESULT WINAPI SignerFreeSignerContext(
++    __in  SIGNER_CONTEXT *pSignerContext
++);
++
++typedef HRESULT (WINAPI *SignerFreeSignerContextPtr)(
++    __in  SIGNER_CONTEXT *pSignerContext
++);
+diff -pruN a/include/version_common.rc b/include/version_common.rc
+--- a/include/version_common.rc	2018-07-11 19:29:59.000000000 +0300
++++ b/include/version_common.rc	2020-01-17 13:56:26.903126810 +0300
+@@ -3,7 +3,7 @@
+ 
+ // version.h is generated during build by set_version.ps1
+ // it defines version macros
+-#include "..\version.h"
++#include "../version.h"
+ 
+ // QTW_FILETYPE must be defined (VFT_*)
+ 
+diff -pruN a/install-helper/create-device/create-device.c b/install-helper/create-device/create-device.c
+--- a/install-helper/create-device/create-device.c	2018-07-11 19:29:59.000000000 +0300
++++ b/install-helper/create-device/create-device.c	2020-01-17 13:56:26.903126810 +0300
+@@ -27,6 +27,11 @@
+ #include <devpkey.h>
+ #include <strsafe.h>
+ 
++#ifdef __MINGW32__
++#include "customddkinc.h"
++#include "setupapifn.h"
++#endif
++
+ void Usage(IN const WCHAR *selfName)
+ {
+     fwprintf(stderr, L"Usage: %s inf-path hardware-id\n", selfName);
+diff -pruN a/install-helper/disable-device/disable-device.c b/install-helper/disable-device/disable-device.c
+--- a/install-helper/disable-device/disable-device.c	2018-07-11 19:29:59.000000000 +0300
++++ b/install-helper/disable-device/disable-device.c	2020-01-17 13:56:26.903126810 +0300
+@@ -28,6 +28,11 @@
+ #include <devpkey.h>
+ #include <strsafe.h>
+ 
++#ifdef __MINGW32__
++#include "customddkinc.h"
++#include "setupapifn.h"
++#endif
++
+ void Usage(IN const WCHAR *selfName)
+ {
+     fwprintf(stderr, L"Usage: %s -e|-d class-name [enumerator] [hwID]\n", selfName);
+diff -pruN a/install-helper/pkihelper/version.rc b/install-helper/pkihelper/version.rc
+--- a/install-helper/pkihelper/version.rc	1970-01-01 03:00:00.000000000 +0300
++++ b/install-helper/pkihelper/version.rc	2020-01-17 13:56:26.904126813 +0300
+@@ -0,0 +1,4 @@
++#define QTW_FILEDESCRIPTION_STR "Qubes install helper (pkihelper)"
++#define QTW_FILETYPE VFT_APP
++#include "..\..\version.h"
++#include "version_common.rc"
+diff -pruN a/Makefile b/Makefile
+--- a/Makefile	1970-01-01 03:00:00.000000000 +0300
++++ b/Makefile	2020-01-17 13:56:26.898126798 +0300
+@@ -0,0 +1,55 @@
++OUTDIR = bin/$(ARCH)
++INCLUDES = -Iinclude/mingw -Iinclude
++CFLAGS += $(INCLUDES) -std=c11 -fgnu89-inline -DUNICODE -D_UNICODE -DWINVER=0x0600 -mwindows
++LDFLAGS += -L$(OUTDIR) -lwindows-utils
++
++all: $(OUTDIR) $(OUTDIR)/qga.exe $(OUTDIR)/QgaWatchdog.exe $(OUTDIR)/create-device.exe $(OUTDIR)/disable-device.exe $(OUTDIR)/qvgdi.dll $(OUTDIR)/qvmini.sys $(OUTDIR)/qvideo.inf $(OUTDIR)/pkihelper.exe
++
++$(OUTDIR):
++	mkdir -p $@
++
++$(OUTDIR)/qga.exe: LDFLAGS += -lvchan -lqubesdb-client -lpsapi -lgdi32 -lwsock32 -lwinmm
++$(OUTDIR)/qga.exe: $(wildcard gui-agent/*.c) $(OUTDIR)/qga.res
++	$(CC) $^ $(CFLAGS) $(LDFLAGS) -mwindows -municode -o $@
++
++$(OUTDIR)/qga.res: gui-agent/qga.rc version.h
++	$(WINDRES) -Iinclude -i $< -o $@ -O coff
++
++# qubes version has 3 parts, windows needs 4
++version.h: VERSION=$(shell cat version).0
++version.h: coma=,
++version.h: version
++	echo "#define QTW_FILEVERSION $(subst .,$(coma),$(VERSION))" >$@
++	echo "#define QTW_FILEVERSION_STR \"$(VERSION)\"" >>$@
++	echo "#define QTW_PRODUCTVERSION 3,0,0,0" >>$@
++	echo "#define QTW_PRODUCTVERSION_STR \"3.0.0.0\"" >>$@
++
++$(OUTDIR)/QgaWatchdog.exe: watchdog/watchdog.c
++	$(CC) $^ $(CFLAGS) $(LDFLAGS) -lshlwapi -lwtsapi32 -municode -o $@
++
++$(OUTDIR)/create-device.exe: install-helper/create-device/create-device.c
++$(OUTDIR)/disable-device.exe: install-helper/disable-device/disable-device.c
++
++$(OUTDIR)/create-device.exe $(OUTDIR)/disable-device.exe: $(OUTDIR)/%.exe:
++	$(CC) $^ $(CFLAGS) $(LDFLAGS) -lsetupapi -mconsole -municode -o $@
++
++$(OUTDIR)/pkihelper.exe: install-helper/pkihelper/pkihelper.c
++	$(CC) $^ $(CFLAGS) $(LDFLAGS) -lshlwapi -lcrypt32 -lwintrust -lmscat32 -lmssign32 -mconsole -municode -o $@
++
++$(OUTDIR)/qvgdi.dll: LDFLAGS = -L$(OUTDIR) -lwin32k -lntoskrnl -lhal -lwmilib -nostdlib -Wl,--subsystem,native -Wl,--no-insert-timestamp -e DrvEnableDriver -shared -D__INTRINSIC_DEFINED__InterlockedAdd64
++$(OUTDIR)/qvgdi.dll: CFLAGS = $(INCLUDES) -I$(DDK_PATH) -DUNICODE -D_UNICODE
++$(OUTDIR)/qvgdi.dll: $(OUTDIR)/libwin32k.a qvideo/gdi/debug.c qvideo/gdi/enable.c qvideo/gdi/screen.c
++
++$(OUTDIR)/qvmini.sys: LDFLAGS = -L$(OUTDIR) -lvideoprt -lntoskrnl -lhal -nostdlib -Wl,--subsystem,native -Wl,--no-insert-timestamp -shared -e DriverEntry
++$(OUTDIR)/qvmini.sys: CFLAGS = $(INCLUDES) -I$(DDK_PATH) -DUNICODE -D_UNICODE -D_NTOSDEF_ -DNOCRYPT -D__INTRINSIC_DEFINED__InterlockedAdd64
++$(OUTDIR)/qvmini.sys: $(OUTDIR)/libvideoprt.a qvideo/miniport/memory.c qvideo/miniport/qvmini.c
++
++$(OUTDIR)/qvgdi.dll $(OUTDIR)/qvmini.sys:
++	$(CC) $(filter %.c, $^) $(CFLAGS) $(LDFLAGS) -o $@
++
++$(OUTDIR)/lib%.a: include/mingw/%.def
++	$(DLLTOOL) -k -d $^ -t $* -l $@
++	$(STRIP) --enable-deterministic-archives --strip-dwo $@
++
++$(OUTDIR)/qvideo.inf: qvideo/qvideo.inf
++	cp $^ $@
+diff -pruN a/qvideo/gdi/driver.h b/qvideo/gdi/driver.h
+--- a/qvideo/gdi/driver.h	2018-07-11 19:29:59.000000000 +0300
++++ b/qvideo/gdi/driver.h	2020-01-17 13:56:26.904126813 +0300
+@@ -22,6 +22,12 @@
+ #include <stddef.h>
+ #include <stdarg.h>
+ 
++#ifdef __MINGW32__
++#include <driverspecs.h>
++#define __in_opt SAL__in_opt
++#define __out_bcount_opt SAL__out_bcount_opt
++#endif
++
+ #pragma warning(push)
+ #pragma warning(disable: 4200 4201 4214)
+ 
+diff -pruN a/qvideo/gdi/support.h b/qvideo/gdi/support.h
+--- a/qvideo/gdi/support.h	2018-07-11 19:29:59.000000000 +0300
++++ b/qvideo/gdi/support.h	2020-01-17 13:56:26.904126813 +0300
+@@ -41,6 +41,16 @@ ULONG NTAPI DbgPrintEx(
+ // http://msdn.microsoft.com/en-us/library/windows/hardware/ff551519(v=vs.85).aspx
+ #define _DEBUGF(format, ...) DbgPrintEx(DPFLTR_IHVVIDEO_ID, DPFLTR_TRACE_LEVEL, format, ##__VA_ARGS__)
+ 
++#ifdef __MINGW32__
++#define TRACEF(format, ...) DbgPrintEx(DPFLTR_IHVVIDEO_ID, DPFLTR_INFO_LEVEL, \
++    "[" DRIVER_NAME "] %s: " format "\n", __func__, ##__VA_ARGS__)
++#define DEBUGF(format, ...) DbgPrintEx(DPFLTR_IHVVIDEO_ID, DPFLTR_TRACE_LEVEL, \
++    "[" DRIVER_NAME "] %s: " format "\n", __func__, ##__VA_ARGS__)
++#define WARNINGF(format, ...) DbgPrintEx(DPFLTR_IHVVIDEO_ID, DPFLTR_WARNING_LEVEL, \
++    "[" DRIVER_NAME "] %s: " format "\n", __func__, ##__VA_ARGS__)
++#define ERRORF(format, ...) DbgPrintEx(DPFLTR_IHVVIDEO_ID, DPFLTR_ERROR_LEVEL, \
++    "[" DRIVER_NAME "] %s: " format "\n", __func__, ##__VA_ARGS__)
++#else
+ #define TRACEF(format, ...) DbgPrintEx(DPFLTR_IHVVIDEO_ID, DPFLTR_INFO_LEVEL, \
+     "[" DRIVER_NAME "] " __FUNCTION__ ": " format "\n", ##__VA_ARGS__)
+ #define DEBUGF(format, ...) DbgPrintEx(DPFLTR_IHVVIDEO_ID, DPFLTR_TRACE_LEVEL, \
+@@ -49,6 +59,7 @@ ULONG NTAPI DbgPrintEx(
+     "[" DRIVER_NAME "] " __FUNCTION__ ": " format "\n", ##__VA_ARGS__)
+ #define ERRORF(format, ...) DbgPrintEx(DPFLTR_IHVVIDEO_ID, DPFLTR_ERROR_LEVEL, \
+     "[" DRIVER_NAME "] " __FUNCTION__ ": " format "\n", ##__VA_ARGS__)
++#endif
+ 
+ #define FUNCTION_ENTER()   TRACEF("==>")
+ #define FUNCTION_EXIT()    TRACEF("<==")
+diff -pruN a/qvideo/miniport/ddk_video.h b/qvideo/miniport/ddk_video.h
+--- a/qvideo/miniport/ddk_video.h	2018-07-11 19:29:59.000000000 +0300
++++ b/qvideo/miniport/ddk_video.h	2020-01-17 13:56:26.904126813 +0300
+@@ -20,6 +20,15 @@
+  */
+ 
+ #include <ntddk.h>
++#ifdef __MINGW32__
++#include <driverspecs.h>
++#include "specstrings.h"
++
++/* FIXME: gcc doesn't support exceptions */
++#define __try if (1)
++#define __except(x) if (0)
++
++#endif
+ 
+ //
+ // Debugging statements. This will remove all the debug information from the
+diff -pruN a/qvideo/miniport/list.h b/qvideo/miniport/list.h
+--- a/qvideo/miniport/list.h	2018-07-11 19:29:59.000000000 +0300
++++ b/qvideo/miniport/list.h	2020-01-17 13:56:26.904126813 +0300
+@@ -20,14 +20,17 @@
+  */
+ 
+ #pragma once
++#include <driverspecs.h>
+ 
+ // List macros from Windows kernel headers
+ 
++#ifndef __MINGW32__
+ typedef struct _LIST_ENTRY
+ {
+     struct _LIST_ENTRY *Flink;
+     struct _LIST_ENTRY *Blink;
+ } LIST_ENTRY, *PLIST_ENTRY, *RESTRICTED_POINTER PRLIST_ENTRY;
++#endif
+ 
+ FORCEINLINE
+ VOID
+@@ -42,7 +45,7 @@ InitializeListHead(
+ 
+ _Must_inspect_result_
+ BOOLEAN
+-CFORCEINLINE
++FORCEINLINE
+ IsListEmpty(
+     _In_ const LIST_ENTRY * ListHead
+     )
+diff -pruN a/qvideo/miniport/memory.c b/qvideo/miniport/memory.c
+--- a/qvideo/miniport/memory.c	2018-07-11 19:29:59.000000000 +0300
++++ b/qvideo/miniport/memory.c	2020-01-17 13:56:26.905126815 +0300
+@@ -23,7 +23,7 @@
+ #include <ntstrsafe.h>
+ #include "memory.h"
+ 
+-#define QFN "[QVMINI] " __FUNCTION__ ": "
++#define QFN(x) "[QVMINI] %s: " x, __FUNCTION__
+ 
+ /**
+  * @brief Initialize PFN array for the specified buffer.
+@@ -41,7 +41,7 @@ static NTSTATUS GetBufferPfnArray(
+     mdl = IoAllocateMdl(Buffer->KernelVa, Buffer->AlignedSize, FALSE, FALSE, NULL);
+     if (!mdl)
+     {
+-        VideoDebugPrint((0, QFN "IoAllocateMdl(buffer) failed\n"));
++        VideoDebugPrint((0, QFN("IoAllocateMdl(buffer) failed\n")));
+         goto cleanup;
+     }
+ 
+@@ -49,7 +49,7 @@ static NTSTATUS GetBufferPfnArray(
+ 
+     numberPages = ADDRESS_AND_SIZE_TO_SPAN_PAGES(Buffer->KernelVa, MmGetMdlByteCount(mdl));
+     Buffer->PfnArraySize = numberPages*sizeof(PFN_NUMBER) + sizeof(ULONG);
+-    VideoDebugPrint((0, QFN "buffer %p, PfnArraySize: %lu, aligned: %lu, number pages: %lu\n",
++    VideoDebugPrint((0, QFN("buffer %p, PfnArraySize: %lu, aligned: %lu, number pages: %lu\n"),
+         Buffer, Buffer->PfnArraySize, ALIGN(Buffer->PfnArraySize, PAGE_SIZE), numberPages));
+ 
+     // align to page size because it'll be mapped to user mode
+@@ -58,7 +58,7 @@ static NTSTATUS GetBufferPfnArray(
+ 
+     if (!Buffer->PfnArray)
+     {
+-        VideoDebugPrint((0, QFN "pfn array allocation failed\n"));
++        VideoDebugPrint((0, QFN("pfn array allocation failed\n")));
+         goto cleanup;
+     }
+ 
+@@ -72,7 +72,7 @@ static NTSTATUS GetBufferPfnArray(
+     Buffer->PfnMdl = IoAllocateMdl(Buffer->PfnArray, Buffer->PfnArraySize, FALSE, FALSE, NULL);
+     if (!Buffer->PfnMdl)
+     {
+-        VideoDebugPrint((0, QFN "IoAllocateMdl(pfns) failed\n"));
++        VideoDebugPrint((0, QFN("IoAllocateMdl(pfns) failed\n")));
+         goto cleanup;
+     }
+ 
+@@ -107,7 +107,7 @@ PQVM_BUFFER QvmAllocateBuffer(
+     buffer = ExAllocatePoolWithTag(NonPagedPool, sizeof(QVM_BUFFER), QVMINI_TAG);
+     if (!buffer)
+     {
+-        VideoDebugPrint((0, QFN "allocate buffer failed\n"));
++        VideoDebugPrint((0, QFN("allocate buffer failed\n")));
+         goto cleanup;
+     }
+ 
+@@ -121,18 +121,18 @@ PQVM_BUFFER QvmAllocateBuffer(
+     buffer->KernelVa = ExAllocatePoolWithTag(NonPagedPool, buffer->AlignedSize, QVMINI_TAG);
+     if (!buffer->KernelVa)
+     {
+-        VideoDebugPrint((0, QFN "allocate buffer data (%lu) failed\n", buffer->AlignedSize));
++        VideoDebugPrint((0, QFN("allocate buffer data (%lu) failed\n"), buffer->AlignedSize));
+         goto cleanup;
+     }
+ 
+     status = GetBufferPfnArray(buffer);
+     if (!NT_SUCCESS(status))
+     {
+-        VideoDebugPrint((0, QFN "GetBufferPfnArray (%p) failed: 0x%x\n", buffer, status));
++        VideoDebugPrint((0, QFN("GetBufferPfnArray (%p) failed: 0x%x\n"), buffer, status));
+         goto cleanup;
+     }
+ 
+-    VideoDebugPrint((0, QFN "buffer %p, kva %p, aligned size %lu, pfn array %p, pfn array size %lu\n",
++    VideoDebugPrint((0, QFN("buffer %p, kva %p, aligned size %lu, pfn array %p, pfn array size %lu\n"),
+         buffer, buffer->KernelVa, buffer->AlignedSize, buffer->PfnArray, buffer->PfnArraySize));
+ 
+     status = STATUS_SUCCESS;
+@@ -155,7 +155,7 @@ VOID QvmFreeBuffer(
+     __inout PQVM_BUFFER Buffer
+     )
+ {
+-    VideoDebugPrint((0, QFN "buffer %p, kva %p, aligned size %lu, pfn array %p, pfn array size %lu\n",
++    VideoDebugPrint((0, QFN("buffer %p, kva %p, aligned size %lu, pfn array %p, pfn array size %lu\n"),
+         Buffer, Buffer->KernelVa, Buffer->AlignedSize, Buffer->PfnArray, Buffer->PfnArraySize));
+ 
+     if (Buffer->PfnUserVa)
+@@ -182,7 +182,7 @@ ULONG QvmMapBufferPfns(
+     ASSERT(!Buffer->Process);
+     ASSERT(!Buffer->PfnUserVa);
+ 
+-    VideoDebugPrint((0, QFN "mapping pfns of buffer %p, kva %p\n", Buffer, Buffer->KernelVa));
++    VideoDebugPrint((0, QFN("mapping pfns of buffer %p, kva %p\n"), Buffer, Buffer->KernelVa));
+ #pragma prefast(suppress: 6320) // we want to catch all exceptions
+     __try
+     {
+@@ -193,12 +193,12 @@ ULONG QvmMapBufferPfns(
+     __except (EXCEPTION_EXECUTE_HANDLER)
+     {
+         status = GetExceptionCode();
+-        VideoDebugPrint((0, QFN "exception 0x%x\n", status));
++        VideoDebugPrint((0, QFN("exception 0x%x\n"), status));
+         goto cleanup;
+     }
+ 
+     Buffer->Process = PsGetCurrentProcess();
+-    VideoDebugPrint((0, QFN "PfnUserVa %p, process %p\n", Buffer->PfnUserVa, Buffer->Process));
++    VideoDebugPrint((0, QFN("PfnUserVa %p, process %p\n"), Buffer->PfnUserVa, Buffer->Process));
+     status = STATUS_SUCCESS;
+ 
+ cleanup:
+@@ -219,7 +219,7 @@ ULONG QvmUnmapBufferPfns(
+     ASSERT(Buffer->PfnUserVa && Buffer->Process);
+     ASSERT(Buffer->Process == PsGetCurrentProcess());
+ 
+-    VideoDebugPrint((0, QFN "unmapping pfns of buffer %p, kva %p\n", Buffer, Buffer->KernelVa));
++    VideoDebugPrint((0, QFN("unmapping pfns of buffer %p, kva %p\n"), Buffer, Buffer->KernelVa));
+ #pragma prefast(suppress: 6320) // we want to catch all exceptions
+     __try
+     {
+@@ -228,7 +228,7 @@ ULONG QvmUnmapBufferPfns(
+     __except (EXCEPTION_EXECUTE_HANDLER)
+     {
+         status = GetExceptionCode();
+-        VideoDebugPrint((0, QFN "exception 0x%x\n", status));
++        VideoDebugPrint((0, QFN("exception 0x%x\n"), status));
+         goto cleanup;
+     }
+ 
+diff -pruN a/qvideo/miniport/qvmini.c b/qvideo/miniport/qvmini.c
+--- a/qvideo/miniport/qvmini.c	2018-07-11 19:29:59.000000000 +0300
++++ b/qvideo/miniport/qvmini.c	2020-01-17 13:56:26.905126815 +0300
+@@ -23,7 +23,7 @@
+ 
+ #if DBG
+ VOID QubesVideoNotImplemented(
+-    __in char *s
++    __in const char *s
+     )
+ {
+     VideoDebugPrint((0, "[QVMINI] Not implemented: %s\n", s));
+@@ -123,7 +123,7 @@ BOOLEAN HwVidInitialize(
+ {
+     PQVMINI_DX dx = (PQVMINI_DX)DeviceExtension;
+ 
+-    VideoDebugPrint((0, QFN "start\n"));
++    VideoDebugPrint((0, QFN("start\n")));
+     // FIXME: when to perform cleanup? video miniport drivers don't have any "unload" callbacks... set power state most likely.
+     VideoPortCreateSpinLock(DeviceExtension, &dx->BufferListLock);
+     InitializeListHead(&dx->BufferList);
+@@ -144,7 +144,7 @@ BOOLEAN HwVidStartIO(
+     Vrp->StatusBlock->Status = 0;
+     Vrp->StatusBlock->Information = 0;
+ 
+-    VideoDebugPrint((0, QFN "code 0x%x\n", Vrp->IoControlCode));
++    VideoDebugPrint((0, QFN("code 0x%x\n"), Vrp->IoControlCode));
+ 
+     switch (Vrp->IoControlCode)
+     {
+@@ -174,7 +174,7 @@ BOOLEAN HwVidStartIO(
+ 
+         if (!buffer)
+         {
+-            VideoDebugPrint((0, QFN "QvmAllocateBuffer(%lu) failed\n", input->Size));
++            VideoDebugPrint((0, QFN("QvmAllocateBuffer(%lu) failed\n"), input->Size));
+ 
+             Vrp->StatusBlock->Status = ERROR_NOT_ENOUGH_MEMORY;
+             Vrp->StatusBlock->Information = 0;
+@@ -187,7 +187,7 @@ BOOLEAN HwVidStartIO(
+             VideoPortAcquireSpinLock(dx, dx->BufferListLock, &oldIrql);
+             InsertTailList(&dx->BufferList, &buffer->ListEntry);
+             VideoPortReleaseSpinLock(dx, dx->BufferListLock, oldIrql);
+-            VideoDebugPrint((0, QFN "Added buffer %p, kva %p\n", buffer, buffer->KernelVa));
++            VideoDebugPrint((0, QFN("Added buffer %p, kva %p\n"), buffer, buffer->KernelVa));
+ 
+             Vrp->StatusBlock->Status = NO_ERROR;
+             Vrp->StatusBlock->Information = sizeof(QVMINI_ALLOCATE_MEMORY_RESPONSE);
+@@ -227,7 +227,7 @@ BOOLEAN HwVidStartIO(
+ 
+         if (buffer && buffer->KernelVa == input->KernelVa)
+         {
+-            VideoDebugPrint((0, QFN "freeing buffer %p, kva %p\n", buffer, buffer->KernelVa));
++            VideoDebugPrint((0, QFN("freeing buffer %p, kva %p\n"), buffer, buffer->KernelVa));
+             VideoPortAcquireSpinLock(dx, dx->BufferListLock, &oldIrql);
+             RemoveEntryList(&buffer->ListEntry);
+             VideoPortReleaseSpinLock(dx, dx->BufferListLock, oldIrql);
+@@ -236,7 +236,7 @@ BOOLEAN HwVidStartIO(
+         }
+         else
+         {
+-            VideoDebugPrint((0, QFN "buffer for kva %p not found\n", input->KernelVa));
++            VideoDebugPrint((0, QFN("buffer for kva %p not found\n"), input->KernelVa));
+             Vrp->StatusBlock->Status = ERROR_INVALID_PARAMETER;
+         }
+ 
+@@ -278,14 +278,14 @@ BOOLEAN HwVidStartIO(
+ 
+         if (buffer && buffer->KernelVa == input->KernelVa)
+         {
+-            VideoDebugPrint((0, QFN "mapping pfns %p of buffer %p, kva %p\n", buffer->PfnArray, buffer, buffer->KernelVa));
++            VideoDebugPrint((0, QFN("mapping pfns %p of buffer %p, kva %p\n"), buffer->PfnArray, buffer, buffer->KernelVa));
+             Vrp->StatusBlock->Status = QvmMapBufferPfns(buffer);
+             output->UserVa = buffer->PfnUserVa;
+             Vrp->StatusBlock->Information = sizeof(QVMINI_MAP_PFNS_RESPONSE);
+         }
+         else
+         {
+-            VideoDebugPrint((0, QFN "buffer for kva %p not found\n", input->KernelVa));
++            VideoDebugPrint((0, QFN("buffer for kva %p not found\n"), input->KernelVa));
+             Vrp->StatusBlock->Status = ERROR_INVALID_PARAMETER;
+             Vrp->StatusBlock->Information = 0;
+         }
+@@ -325,12 +325,12 @@ BOOLEAN HwVidStartIO(
+ 
+         if (buffer && buffer->KernelVa == input->KernelVa)
+         {
+-            VideoDebugPrint((0, QFN "unmapping pfns %p of buffer %p, kva %p\n", buffer->PfnArray, buffer, buffer->KernelVa));
++            VideoDebugPrint((0, QFN("unmapping pfns %p of buffer %p, kva %p\n"), buffer->PfnArray, buffer, buffer->KernelVa));
+             Vrp->StatusBlock->Status = QvmUnmapBufferPfns(buffer);
+         }
+         else
+         {
+-            VideoDebugPrint((0, QFN "buffer for kva %p not found\n", input->KernelVa));
++            VideoDebugPrint((0, QFN("buffer for kva %p not found\n"), input->KernelVa));
+             Vrp->StatusBlock->Status = ERROR_INVALID_PARAMETER;
+         }
+ 
+@@ -354,7 +354,7 @@ ULONG DriverEntry(
+     VIDEO_HW_INITIALIZATION_DATA hwInitData;
+     ULONG status;
+ 
+-    VideoDebugPrint((0, QFN "start\n"));
++    VideoDebugPrint((0, QFN("start\n")));
+ 
+     // Zero out structure.
+     VideoPortZeroMemory(&hwInitData, sizeof(VIDEO_HW_INITIALIZATION_DATA));
+diff -pruN a/qvideo/miniport/qvmini.h b/qvideo/miniport/qvmini.h
+--- a/qvideo/miniport/qvmini.h	2018-07-11 19:29:59.000000000 +0300
++++ b/qvideo/miniport/qvmini.h	2020-01-17 13:56:26.905126815 +0300
+@@ -20,17 +20,26 @@
+  */
+ 
+ #pragma warning(disable: 4201)
++#ifdef __MINGW32__
++#include <ntdef.h>
++#endif
+ #include <dderror.h>
+ #include <devioctl.h>
+ #include <miniport.h>
+ #include <ntddvdeo.h>
+ #include <video.h>
+ 
++#ifdef __MINGW32__
++#include <windows.h>
++#include <specstrings.h>
++#define __inout_bcount SAL__inout_bcount
++#endif
++
+ // miniport headers don't include list macros for some ungodly reason...
+ #include "list.h"
+ #include "memory.h"
+ 
+-#define QFN "[QVMINI] " __FUNCTION__ ": "
++#define QFN(x) "[QVMINI] %s: " x, __FUNCTION__
+ 
+ // device extension, per-adapter data
+ typedef struct _QVMINI_DX
+diff -pruN a/watchdog/watchdog.c b/watchdog/watchdog.c
+--- a/watchdog/watchdog.c	2018-07-11 19:29:59.000000000 +0300
++++ b/watchdog/watchdog.c	2020-01-17 13:56:26.905126815 +0300
+@@ -20,8 +20,8 @@
+  */
+ 
+ #include <windows.h>
+-#include <WtsApi32.h>
+-#include <Shlwapi.h>
++#include <wtsapi32.h>
++#include <shlwapi.h>
+ #include <string.h>
+ #include "common.h"
+ 
+@@ -83,7 +83,7 @@ BOOL IsProcessRunning(IN const WCHAR *ex
+ 
+     if (!WTSEnumerateProcesses(WTS_CURRENT_SERVER, 0, 1, &processInfo, &count))
+     {
+-        perror("WTSEnumerateProcesses");
++        win_perror("WTSEnumerateProcesses");
+         goto cleanup;
+     }
+ 
+@@ -119,7 +119,7 @@ DWORD TerminateTargetProcess(IN const WC
+     shutdownEvent = OpenEvent(EVENT_MODIFY_STATE, FALSE, QGA_SHUTDOWN_EVENT_NAME);
+     if (!shutdownEvent)
+     {
+-        perror("OpenEvent");
++        win_perror("OpenEvent");
+         LogInfo("Shutdown event '%s' not found, making sure it's not running", QGA_SHUTDOWN_EVENT_NAME);
+     }
+     else
+@@ -140,7 +140,7 @@ DWORD TerminateTargetProcess(IN const WC
+ 
+         if (!targetProcess)
+         {
+-            return perror("OpenProcess");
++            return win_perror("OpenProcess");
+         }
+ 
+         // wait for exit
+@@ -182,7 +182,7 @@ DWORD StartTargetProcess(IN WCHAR *exePa
+     // We need to create a primary token for CreateProcessAsUser.
+     if (!DuplicateTokenEx(currentToken, TOKEN_ALL_ACCESS, NULL, SecurityImpersonation, TokenPrimary, &newToken))
+     {
+-        return perror("DuplicateTokenEx");
++        return win_perror("DuplicateTokenEx");
+     }
+     CloseHandle(currentProcess);
+ 
+@@ -190,7 +190,7 @@ DWORD StartTargetProcess(IN WCHAR *exePa
+     // This requires SeTcbPrivilege, but we're running as SYSTEM and have it.
+     if (!SetTokenInformation(newToken, TokenSessionId, &consoleSessionId, sizeof(consoleSessionId)))
+     {
+-        return perror("SetTokenInformation(TokenSessionId)");
++        return win_perror("SetTokenInformation(TokenSessionId)");
+     }
+ 
+     LogInfo("Running process '%s' in session %d", exePath, consoleSessionId);
+@@ -202,7 +202,7 @@ DWORD StartTargetProcess(IN WCHAR *exePa
+     // and hardcodint this to winlogon is wrong.
+     if (!CreateProcessAsUser(newToken, NULL, exePath, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+     {
+-        return perror("CreateProcessAsUser");
++        return win_perror("CreateProcessAsUser");
+     }
+ 
+     CloseHandle(pi.hProcess);
+@@ -303,7 +303,7 @@ void WINAPI ServiceMain(IN DWORD argc, I
+     status = CfgReadString(moduleName, REG_CONFIG_AUTOSTART_VALUE, cmdline1, RTL_NUMBER_OF(cmdline1), NULL);
+     if (ERROR_SUCCESS != status)
+     {
+-        perror("RegQueryValueEx(Autostart)");
++        win_perror("RegQueryValueEx(Autostart)");
+         goto cleanup;
+     }
+ 
+@@ -334,7 +334,7 @@ void WINAPI ServiceMain(IN DWORD argc, I
+     g_StatusHandle = RegisterServiceCtrlHandlerEx(SERVICE_NAME, ControlHandlerEx, NULL);
+     if (g_StatusHandle == 0)
+     {
+-        perror("RegisterServiceCtrlHandlerEx");
++        win_perror("RegisterServiceCtrlHandlerEx");
+         goto cleanup;
+     }
+ 
+@@ -349,7 +349,7 @@ void WINAPI ServiceMain(IN DWORD argc, I
+     workerHandle = CreateThread(NULL, 0, SessionChangeThread, cmdline1, 0, NULL);
+     if (!workerHandle)
+     {
+-        perror("CreateThread");
++        win_perror("CreateThread");
+         goto cleanup;
+     }
+ 
+@@ -357,7 +357,7 @@ void WINAPI ServiceMain(IN DWORD argc, I
+     watchdogHandle = CreateThread(NULL, 0, WatchdogThread, cmdline2, 0, NULL);
+     if (!watchdogHandle)
+     {
+-        perror("CreateThread");
++        win_perror("CreateThread");
+         goto cleanup;
+     }
+ 

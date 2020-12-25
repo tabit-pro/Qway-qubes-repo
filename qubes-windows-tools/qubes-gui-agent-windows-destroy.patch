@@ -1,0 +1,14 @@
+diff --git a/gui-agent/main.c b/gui-agent/main.c
+index 0e53591..f6d55c5 100644
+--- a/gui-agent/main.c
++++ b/gui-agent/main.c
+@@ -1005,8 +1005,8 @@ static ULONG WINAPI WatchForEvents(void)
+     if (g_VchanClientConnected)
+         libvchan_close(g_Vchan);
+ 
+-    CloseHandle(windowDamageEvent);
+     QvUnregisterWatchedDC(screenDC);
++    CloseHandle(windowDamageEvent);
+     ReleaseDC(NULL, screenDC);
+     LogInfo("exiting");
+ 
