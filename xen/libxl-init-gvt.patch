@@ -1,6 +1,6 @@
-diff -pruN xen-4.13.0/tools/libxl/libxl_create.c xen-4.13.0.new/tools/libxl/libxl_create.c
---- xen-4.13.0/tools/libxl/libxl_create.c	2020-02-06 11:37:43.964628249 +0300
-+++ xen-4.13.0.new/tools/libxl/libxl_create.c	2020-02-06 11:34:57.629786673 +0300
+diff -ur xen-4.14.0-orig/tools/libxl/libxl_create.c xen-4.14.0-new/tools/libxl/libxl_create.c
+--- xen-4.14.0-orig/tools/libxl/libxl_create.c	2020-07-23 18:07:51.000000000 +0300
++++ xen-4.14.0-new/tools/libxl/libxl_create.c	2020-08-31 17:41:42.587563737 +0300
 @@ -27,6 +27,36 @@
  
  #include <xen-xsm/flask/flask.h>
@@ -38,7 +38,7 @@ diff -pruN xen-4.13.0/tools/libxl/libxl_create.c xen-4.13.0.new/tools/libxl/libx
  int libxl__domain_create_info_setdefault(libxl__gc *gc,
                                           libxl_domain_create_info *c_info,
                                           const libxl_physinfo *info)
-@@ -328,6 +358,7 @@ int libxl__domain_build_info_setdefault(
+@@ -338,6 +368,7 @@
                      return ERROR_INVAL;
                  }
                  break;
@@ -46,7 +46,7 @@ diff -pruN xen-4.13.0/tools/libxl/libxl_create.c xen-4.13.0.new/tools/libxl/libx
              case LIBXL_VGA_INTERFACE_TYPE_CIRRUS:
              default:
                  if (b_info->video_memkb == LIBXL_MEMKB_DEFAULT)
-@@ -1609,6 +1640,9 @@ static void domcreate_launch_dm(libxl__e
+@@ -1722,6 +1753,9 @@
          if ( ret )
              goto error_out;
  
@@ -56,10 +56,10 @@ diff -pruN xen-4.13.0/tools/libxl/libxl_create.c xen-4.13.0.new/tools/libxl/libx
          return;
      }
      case LIBXL_DOMAIN_TYPE_PV:
-diff -pruN xen-4.13.0/tools/libxl/libxl_dm.c xen-4.13.0.new/tools/libxl/libxl_dm.c
---- xen-4.13.0/tools/libxl/libxl_dm.c	2020-02-06 11:37:43.964628249 +0300
-+++ xen-4.13.0.new/tools/libxl/libxl_dm.c	2020-02-06 11:31:14.063182594 +0300
-@@ -1422,6 +1422,9 @@ static int libxl__build_device_model_arg
+diff -ur xen-4.14.0-orig/tools/libxl/libxl_dm.c xen-4.14.0-new/tools/libxl/libxl_dm.c
+--- xen-4.14.0-orig/tools/libxl/libxl_dm.c	2020-07-23 18:07:51.000000000 +0300
++++ xen-4.14.0-new/tools/libxl/libxl_dm.c	2020-08-31 17:41:42.588563739 +0300
+@@ -1446,6 +1446,9 @@
                  GCSPRINTF("qxl-vga,vram_size_mb=%"PRIu64",ram_size_mb=%"PRIu64,
                  (b_info->video_memkb/2/1024), (b_info->video_memkb/2/1024) ) );
              break;
@@ -69,10 +69,10 @@ diff -pruN xen-4.13.0/tools/libxl/libxl_dm.c xen-4.13.0.new/tools/libxl/libxl_dm
          default:
              LOGD(ERROR, guest_domid, "Invalid emulated video card specified");
              return ERROR_INVAL;
-diff -pruN xen-4.13.0/tools/libxl/libxl_domain.c xen-4.13.0.new/tools/libxl/libxl_domain.c
---- xen-4.13.0/tools/libxl/libxl_domain.c	2019-12-17 17:23:09.000000000 +0300
-+++ xen-4.13.0.new/tools/libxl/libxl_domain.c	2020-02-06 11:31:14.063182594 +0300
-@@ -1073,6 +1073,30 @@ static void domain_destroy_callback(libx
+diff -ur xen-4.14.0-orig/tools/libxl/libxl_domain.c xen-4.14.0-new/tools/libxl/libxl_domain.c
+--- xen-4.14.0-orig/tools/libxl/libxl_domain.c	2020-07-23 18:07:51.000000000 +0300
++++ xen-4.14.0-new/tools/libxl/libxl_domain.c	2020-08-31 17:42:35.352685370 +0300
+@@ -1078,6 +1078,30 @@
  static void destroy_finish_check(libxl__egc *egc,
                                   libxl__domain_destroy_state *dds);
  
@@ -103,19 +103,19 @@ diff -pruN xen-4.13.0/tools/libxl/libxl_domain.c xen-4.13.0.new/tools/libxl/libx
  void libxl__domain_destroy(libxl__egc *egc, libxl__domain_destroy_state *dds)
  {
      STATE_AO_GC(dds->ao);
-@@ -1308,6 +1332,8 @@ static void devices_destroy_cb(libxl__eg
+@@ -1547,6 +1571,8 @@
      }
      libxl__userdata_destroyall(gc, domid);
  
 +    destroy_vgt_instance(domid);
 +
-     libxl__unlock_domain_userdata(lock);
+     libxl__unlock_file(lock);
  
      /* Clean up qemu-save and qemu-resume files. They are
-diff -pruN xen-4.13.0/tools/libxl/libxl_types.idl xen-4.13.0.new/tools/libxl/libxl_types.idl
---- xen-4.13.0/tools/libxl/libxl_types.idl	2020-02-06 11:37:43.965628332 +0300
-+++ xen-4.13.0.new/tools/libxl/libxl_types.idl	2020-02-06 11:31:14.064182678 +0300
-@@ -38,6 +38,7 @@ libxl_ms_vm_genid = Builtin("ms_vm_genid
+diff -ur xen-4.14.0-orig/tools/libxl/libxl_types.idl xen-4.14.0-new/tools/libxl/libxl_types.idl
+--- xen-4.14.0-orig/tools/libxl/libxl_types.idl	2020-07-23 18:07:51.000000000 +0300
++++ xen-4.14.0-new/tools/libxl/libxl_types.idl	2020-08-31 17:41:42.590563744 +0300
+@@ -38,6 +38,7 @@
  #
  
  MemKB = UInt(64, init_val = "LIBXL_MEMKB_DEFAULT", json_gen_fn = "libxl__uint64_gen_json")
@@ -123,7 +123,7 @@ diff -pruN xen-4.13.0/tools/libxl/libxl_types.idl xen-4.13.0.new/tools/libxl/lib
  
  #
  # Constants / Enumerations
-@@ -220,6 +221,7 @@ libxl_vga_interface_type = Enumeration("
+@@ -220,6 +221,7 @@
      (2, "STD"),
      (3, "NONE"),
      (4, "QXL"),
@@ -131,7 +131,7 @@ diff -pruN xen-4.13.0/tools/libxl/libxl_types.idl xen-4.13.0.new/tools/libxl/lib
      ], init_val = "LIBXL_VGA_INTERFACE_TYPE_UNKNOWN")
  
  libxl_vendor_device = Enumeration("vendor_device", [
-@@ -595,6 +597,9 @@ libxl_domain_build_info = Struct("domain
+@@ -590,6 +592,9 @@
                                         ("hdtype",           libxl_hdtype),
                                         ("nographic",        libxl_defbool),
                                         ("vga",              libxl_vga_interface_info),
@@ -141,29 +141,21 @@ diff -pruN xen-4.13.0/tools/libxl/libxl_types.idl xen-4.13.0.new/tools/libxl/lib
                                         ("vnc",              libxl_vnc_info),
                                         # keyboard layout, default is en-us keyboard
                                         ("keymap",           string),
-diff -pruN xen-4.13.0/tools/xl/xl_parse.c xen-4.13.0.new/tools/xl/xl_parse.c
---- xen-4.13.0/tools/xl/xl_parse.c	2020-02-06 11:37:43.866620092 +0300
-+++ xen-4.13.0.new/tools/xl/xl_parse.c	2020-02-06 11:31:14.064182678 +0300
-@@ -2590,6 +2590,8 @@ skip_usbdev:
+diff -pruN xen-4.14.0/tools/xl/xl_parse.c xen-4.14.0.new/tools/xl/xl_parse.c
+--- xen-4.14.0/tools/xl/xl_parse.c	2020-07-23 18:07:51.000000000 +0300
++++ xen-4.14.0.new/tools/xl/xl_parse.c	2020-09-01 17:07:05.821572572 +0300
+@@ -2590,6 +2590,14 @@ skip_usbdev:
                  b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_NONE;
              } else if (!strcmp(buf, "qxl")) {
                  b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_QXL;
 +            } else if (!strcmp(buf, "xengt")) {
 +                b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_XENGT;
++        	if (!xlu_cfg_get_long(config, "vgt_low_gm_sz", &l, 0))
++            	    b_info->u.hvm.vgt_low_gm_sz = l;
++        	if (!xlu_cfg_get_long(config, "vgt_high_gm_sz", &l, 0))
++                    b_info->u.hvm.vgt_high_gm_sz = l;
++        	if (!xlu_cfg_get_long(config, "vgt_fence_sz", &l, 0))
++            	    b_info->u.hvm.vgt_fence_sz = l;
              } else {
                  fprintf(stderr, "Unknown vga \"%s\" specified\n", buf);
                  exit(1);
-@@ -2605,6 +2607,13 @@ skip_usbdev:
-                 exit (1);
-         }
- 
-+        if (!xlu_cfg_get_long(config, "vgt_low_gm_sz", &l, 0))
-+            b_info->u.hvm.vgt_low_gm_sz = l;
-+        if (!xlu_cfg_get_long(config, "vgt_high_gm_sz", &l, 0))
-+            b_info->u.hvm.vgt_high_gm_sz = l;
-+        if (!xlu_cfg_get_long(config, "vgt_fence_sz", &l, 0))
-+            b_info->u.hvm.vgt_fence_sz = l;
-+
-         xlu_cfg_replace_string (config, "keymap", &b_info->u.hvm.keymap, 0);
-         xlu_cfg_get_defbool (config, "spice", &b_info->u.hvm.spice.enable, 0);
-         if (!xlu_cfg_get_long (config, "spiceport", &l, 0))
