@@ -25,15 +25,16 @@
 
 #removed %{!?python_sitearch: %define python_sitearch %(%{__python} -c "from distutils.sysconfig import get_python_lib; print get_python_lib(1)")}
 
-Name:		qubes-gui-daemon	
-Version:	4.1.6
-Release:	6%{dist}
+Name:		qubes-gui-daemon
+Version:	4.1.11
+Epoch:		2
+Release:	1%{dist}
 Summary:	The Qubes GUI virtualization (Dom0 side) 
-
 Group:		Qubes
 Vendor:		Invisible Things Lab
 License:	GPL
 URL:		http://www.qubes-os.org
+Provides:	qubes-gui-daemon-qway
 
 Requires:	xorg-x11-server-Xorg 
 Requires:	service(graphical-login)
@@ -42,6 +43,7 @@ Requires:	qubes-libvchan-xen
 Requires:   python%{python3_pkgversion}-xcffib
 Requires:   qubes-core-qrexec >= 4.1.5
 Requires:   qubes-utils >= 4.1.4
+Requires:   python%{python3_pkgversion}-qubesimgconverter >= 4.1.4
 Requires:   socat
 
 BuildRequires:  python%{python3_pkgversion}-devel
@@ -61,13 +63,10 @@ BuildRequires:	qubes-core-libs
 BuildRequires:	qubes-gui-common-devel >= 3.2.0
 BuildRequires:	qubes-libvchan-xen-devel
 
-Provides:     qubes-gui-dom0-compiz
-
 Source0: https://github.com/QubesOS/qubes-gui-daemon/archive/v%{version}.tar.gz
-Patch0: 0001-pacat-register-callbacks-on-stream-ready.patch
+
 Patch1: 0002-event-configure.patch
 Patch2: 0003-fullscreen-stubdomain-window.patch
-Patch3: 0004-fix-indentation.patch
 
 %description
 The Qubes GUI virtualization infrastructure that needs to be installed in GuiVM.
@@ -109,12 +108,9 @@ Requires:   python%{python3_pkgversion}-setuptools
 Dom0 files for Qubes AUDIO virtualization. This include core-admin extension, policy files etc.
 
 %prep
-#removed %setup -q -n qubes-gui-daemon-%{version}
-%setup -q 
-%patch0 -p1
+%setup -q
 %patch1 -p1
 %patch2 -p1
-%patch3 -p1
 
 %build
 %{?set_build_flags}
@@ -138,6 +134,10 @@ if [ "$1" = 0 ] ; then
 	# no more packages left
     ln -sf /usr/bin/Xorg /usr/bin/X
 fi
+
+%posttrans
+# force X symlink, which could passed away while package replacement
+ln -sf /usr/bin/X-wrapper-qubes /usr/bin/X
 
 %clean
 rm -rf $RPM_BUILD_ROOT
