@@ -1,0 +1,56 @@
+diff --git a/drivers/usb/usbip/stub_rx.c b/drivers/usb/usbip/stub_rx.c
+index e2b019532..f04abebdc 100644
+--- a/drivers/usb/usbip/stub_rx.c
++++ b/drivers/usb/usbip/stub_rx.c
+@@ -67,8 +67,8 @@ static int tweak_clear_halt_cmd(struct urb *urb)
+ 	struct usb_ctrlrequest *req;
+ 	int target_endp;
+ 	int target_dir;
+-	int target_pipe;
+-	int ret;
++
++	usbip_dbg_stub_rx("Enter");
+ 
+ 	req = (struct usb_ctrlrequest *) urb->setup_packet;
+ 
+@@ -83,21 +83,15 @@ static int tweak_clear_halt_cmd(struct urb *urb)
+ 	target_dir = le16_to_cpu(req->wIndex) & 0x0080;
+ 
+ 	if (target_dir)
+-		target_pipe = usb_rcvctrlpipe(urb->dev, target_endp);
+-	else
+-		target_pipe = usb_sndctrlpipe(urb->dev, target_endp);
++		target_endp |= USB_DIR_IN;
+ 
+-	ret = usb_clear_halt(urb->dev, target_pipe);
+-	if (ret < 0)
+-		dev_err(&urb->dev->dev,
+-			"usb_clear_halt error: devnum %d endp %d ret %d\n",
+-			urb->dev->devnum, target_endp, ret);
+-	else
+-		dev_info(&urb->dev->dev,
+-			 "usb_clear_halt done: devnum %d endp %d\n",
+-			 urb->dev->devnum, target_endp);
++	// try just reset endpoint
++	usb_reset_endpoint(urb->dev, target_endp);
+ 
+-	return ret;
++	dev_info(&urb->dev->dev,
++		"usb_reset_endpoint done: devnum %d endp %d\n",
++		urb->dev->devnum, target_endp);
++	return 0;
+ }
+ 
+ static int tweak_set_interface_cmd(struct urb *urb)
+diff --git a/drivers/usb/usbip/vhci_tx.c b/drivers/usb/usbip/vhci_tx.c
+index 0ae40a13a..0023d569e 100644
+--- a/drivers/usb/usbip/vhci_tx.c
++++ b/drivers/usb/usbip/vhci_tx.c
+@@ -156,6 +156,7 @@ static int vhci_send_cmd_submit(struct vhci_device *vdev)
+ 		total_size += txsize;
+ 	}
+ 
++	usbip_dbg_vhci_tx("leave\n");
+ 	return total_size;
+ 
+ err_tx:

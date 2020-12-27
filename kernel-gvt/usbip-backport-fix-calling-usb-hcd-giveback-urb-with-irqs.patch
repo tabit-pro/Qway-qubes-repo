@@ -1,0 +1,46 @@
+From 9e8586827a7061fdb183e6571fac63af378be013 Mon Sep 17 00:00:00 2001
+From: Shuah Khan <skhan@linuxfoundation.org>
+Date: Tue, 6 Oct 2020 16:39:14 -0600
+Subject: [PATCH] usbip: vhci_hcd: fix calling usb_hcd_giveback_urb() with irqs
+ enabled
+
+kcov testing uncovered call to usb_hcd_giveback_urb() without disabling
+interrupts.
+
+Link: https://lore.kernel.org/linux-usb/CAAeHK+wb4k-LGTjK9F5YbJNviF_+yU+wE_=Vpo9Rn7KFN8vG6Q@mail.gmail.com/
+
+usb_hcd_giveback_urb() is called from vhci's urb_enqueue, when it
+determines it doesn't need to xmit the urb and can give it back.
+This path runs in task context.
+
+Disable irqs around usb_hcd_giveback_urb() call.
+
+Reported-by: Andrey Konovalov <andreyknvl@google.com>
+Suggested-by: Alan Stern <stern@rowland.harvard.edu>
+Acked-by: Andrey Konovalov <andreyknvl@google.com>
+Signed-off-by: Shuah Khan <skhan@linuxfoundation.org>
+Link: https://lore.kernel.org/r/20201006223914.39257-1-skhan@linuxfoundation.org
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/usb/usbip/vhci_hcd.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/usb/usbip/vhci_hcd.c b/drivers/usb/usbip/vhci_hcd.c
+index 1b598db5d8b9dd..66cde5e5f7964a 100644
+--- a/drivers/usb/usbip/vhci_hcd.c
++++ b/drivers/usb/usbip/vhci_hcd.c
+@@ -797,8 +797,14 @@ static int vhci_urb_enqueue(struct usb_hcd *hcd, struct urb *urb, gfp_t mem_flag
+ 	usb_hcd_unlink_urb_from_ep(hcd, urb);
+ no_need_unlink:
+ 	spin_unlock_irqrestore(&vhci->lock, flags);
+-	if (!ret)
++	if (!ret) {
++		/* usb_hcd_giveback_urb() should be called with
++		 * irqs disabled
++		 */
++		local_irq_disable();
+ 		usb_hcd_giveback_urb(hcd, urb, urb->status);
++		local_irq_enable();
++	}
+ 	return ret;
+ }

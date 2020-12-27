@@ -5,11 +5,11 @@
 %define variant gvt.qubes
 %define plainrel 1
 %define rel %{plainrel}.%{variant}
-%define version %(echo '5.4.47' | sed 's/~rc.*/.0/')
-%define upstream_version %(echo '5.4.47' | sed 's/~rc/-rc/')
+%define version %(echo '5.4.74' | sed 's/~rc.*/.0/')
+%define upstream_version %(echo '5.4.74' | sed 's/~rc/-rc/')
 %if "%{version}" != "%{upstream_version}"
 %define prerelease 1
-%define rel 0.%(echo '5.4.47' | sed 's/.*~rc/rc/').%{plainrel}.%{variant}
+%define rel 0.%(echo '5.4.74' | sed 's/.*~rc/rc/').%{plainrel}.%{variant}
 %else
 %define prerelease 0
 %define rel %{plainrel}.%{variant}
@@ -47,7 +47,8 @@
 %define setup_config --enable CONFIG_DEBUG_INFO --disable CONFIG_DEBUG_INFO_REDUCED
 %endif
 
-%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-linux-kernel/v%{version}-1/
+%define qubesos_version 5.4.75-1
+%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-linux-kernel/v%{qubesos_version}/
 
 Name:           kernel%{?name_suffix}
 Summary:        The Xen Kernel
@@ -138,10 +139,12 @@ Patch10: %{patchurl}/0011-xen-blkfront-make-local-copy-of-response-before-usin.p
 Patch11: %{patchurl}/0012-xen-blkfront-prepare-request-locally-only-then-put-i.patch
 Patch12: %{patchurl}/0013-xen-pcifront-pciback-Update-pciif.h-with-err-and-res.patch
 Patch13: %{patchurl}/0014-xen-pciback-add-attribute-to-allow-MSI-enable-flag-w.patch
-Patch14: %{patchurl}/0015-xen-events-avoid-NULL-pointer-dereference-in-evtchn_.patch
 
 Patch22: gvt-xengt-2019y-11m-04d-10h-42m-58s.patch
 Patch23: gvt-xengt-topic-5.4-fix.patch
+Patch34: gvt-backport-add-some-regs-to-force-to-nonpriv-whitelist.patch
+Patch35: usbip-backport-fix-calling-usb-hcd-giveback-urb-with-irqs.patch
+Patch36: usbip-tweak-clear-halt-with-simple-reset.patch
 
 %description
 Qubes Dom0 kernel.
