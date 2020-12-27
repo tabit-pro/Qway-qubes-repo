@@ -253,20 +253,20 @@
     %define tls_priority "@LIBVIRT,SYSTEM"
 %endif
 
-
 Summary: Library providing a simple virtualization API
 Name: libvirt
-Version: 6.4.0
-Release: 100%{?dist}%{?extra_release}
+Version: 6.6.0
+Release: 2%{?dist}%{?extra_release}
 License: LGPLv2+
-Epoch: 1000
+Epoch: 1001
 URL: https://libvirt.org/
 
-%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-core-libvirt/v%{version}-1
+Provides: libvirt-gvt
+%define patchurl https://raw.githubusercontent.com/QubesOS/qubes-core-libvirt/v%{version}-2
 %if %(echo %{version} | grep -q "\.0$"; echo $?) == 1
     %define mainturl stable_updates/
 %endif
-Source: https://libvirt.org/sources/%{?mainturl}libvirt-%{version}.tar.xz
+Source: https://libvirt.org/sources/%{?mainturl}libvirt-%{version}.tar.xz#/%{name}-%{version}.tar.xz
 
 # patches
 Patch0001: %{patchurl}/0001-conf-add-script-attribute-to-disk-specification.patch
@@ -280,39 +280,41 @@ Patch0008: %{patchurl}/0008-libxl-add-linux-stubdom-support.patch
 Patch0009: %{patchurl}/0009-libxl-add-support-for-qubes-graphic-device.patch
 Patch0010: %{patchurl}/0010-libxl-add-support-for-stubdom_mem-option.patch
 Patch0011: %{patchurl}/0011-Add-permissive-option-for-PCI-devices.patch
+Patch0012: %{patchurl}/0012-libxl-use-b_info-acpi-acpi-when-available.patch
+
 Patch0101: libxl-add-support-for-xengt-video.patch
 
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
 %if %{with_network}
-Requires: libvirt-daemon-config-network = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-config-network = %{epoch}:%{version}-%{release}
 %endif
-Requires: libvirt-daemon-config-nwfilter = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-config-nwfilter = %{epoch}:%{version}-%{release}
 %if %{with_libxl}
-Requires: libvirt-daemon-driver-libxl = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-libxl = %{epoch}:%{version}-%{release}
 %endif
 %if %{with_lxc}
-Requires: libvirt-daemon-driver-lxc = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-lxc = %{epoch}:%{version}-%{release}
 %endif
 %if %{with_qemu}
-Requires: libvirt-daemon-driver-qemu = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-qemu = %{epoch}:%{version}-%{release}
 %endif
 # We had UML driver, but we've removed it.
 Obsoletes: libvirt-daemon-driver-uml <= 5.0.0
 Obsoletes: libvirt-daemon-uml <= 5.0.0
 %if %{with_vbox}
-Requires: libvirt-daemon-driver-vbox = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-vbox = %{epoch}:%{version}-%{release}
 %endif
-Requires: libvirt-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
 
-Requires: libvirt-daemon-driver-interface = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-secret = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-storage = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-interface = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-secret = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage = %{epoch}:%{version}-%{release}
 %if %{with_network}
-Requires: libvirt-daemon-driver-network = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-network = %{epoch}:%{version}-%{release}
 %endif
-Requires: libvirt-daemon-driver-nodedev = %{epoch}:%{version}-%{release}
-Requires: libvirt-client = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-nodedev = %{epoch}:%{version}-%{release}
+Requires: %{name}-client = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 
 # All build-time requirements. Run-time requirements are
 # listed against each sub-RPM
@@ -337,7 +339,7 @@ BuildRequires: perl
 BuildRequires: python3
 BuildRequires: systemd-units
 %if %{with_libxl}
-BuildRequires: xen-devel >= 2001:4.8.3-1
+BuildRequires: xen-devel >= 2002:4.8.3-1
 %endif
 BuildRequires: glib2-devel >= 2.48
 BuildRequires: libxml2-devel
@@ -535,9 +537,8 @@ for specific drivers.
 %if %{with_network}
 %package daemon-config-network
 Summary: Default configuration files for the libvirtd daemon
-
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-network = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-network = %{epoch}:%{version}-%{release}
 
 %description daemon-config-network
 Default configuration files for setting up NAT based networking
@@ -545,9 +546,8 @@ Default configuration files for setting up NAT based networking
 
 %package daemon-config-nwfilter
 Summary: Network filter configuration files for the libvirtd daemon
-
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
 
 %description daemon-config-nwfilter
 Network filter configuration files for cleaning guest traffic
@@ -555,8 +555,8 @@ Network filter configuration files for cleaning guest traffic
 %if %{with_network}
 %package daemon-driver-network
 Summary: Network driver plugin for the libvirtd daemon
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 Requires: dnsmasq >= 2.41
 Requires: radvd
 Requires: iptables
@@ -570,8 +570,8 @@ bridge capabilities.
 
 %package daemon-driver-nwfilter
 Summary: Nwfilter driver plugin for the libvirtd daemon
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 Requires: iptables
 Requires: ebtables
 
@@ -583,8 +583,8 @@ iptables and ip6tables capabilities
 
 %package daemon-driver-nodedev
 Summary: Nodedev driver plugin for the libvirtd daemon
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 # needed for device enumeration
 Requires: systemd >= 185
 
@@ -596,8 +596,8 @@ capabilities.
 
 %package daemon-driver-interface
 Summary: Interface driver plugin for the libvirtd daemon
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 Requires: netcf-libs >= 0.2.2
 
 %description daemon-driver-interface
@@ -608,8 +608,8 @@ netcf library
 
 %package daemon-driver-secret
 Summary: Secret driver plugin for the libvirtd daemon
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 
 %description daemon-driver-secret
 The secret driver plugin for the libvirtd daemon, providing
@@ -617,8 +617,8 @@ an implementation of the secret key APIs.
 
 %package daemon-driver-storage-core
 Summary: Storage driver plugin including base backends for the libvirtd daemon
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 Requires: nfs-utils
 # For mkfs
 Requires: util-linux
@@ -637,8 +637,8 @@ iSCSI, and multipath storage.
 
 %package daemon-driver-storage-logical
 Summary: Storage driver plugin for lvm volumes
-Requires: libvirt-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 Requires: lvm2
 
 %description daemon-driver-storage-logical
@@ -648,8 +648,8 @@ volumes using lvm.
 
 %package daemon-driver-storage-disk
 Summary: Storage driver plugin for disk
-Requires: libvirt-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 Requires: parted
 Requires: device-mapper
 
@@ -660,8 +660,8 @@ volumes using the host disks.
 
 %package daemon-driver-storage-scsi
 Summary: Storage driver plugin for local scsi devices
-Requires: libvirt-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 
 %description daemon-driver-storage-scsi
 The storage driver backend adding implementation of the storage APIs for scsi
@@ -670,8 +670,8 @@ host devices.
 
 %package daemon-driver-storage-iscsi
 Summary: Storage driver plugin for iscsi
-Requires: libvirt-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 Requires: iscsi-initiator-utils
 
 %description daemon-driver-storage-iscsi
@@ -682,8 +682,8 @@ volumes using the host iscsi stack.
 %if %{with_storage_iscsi_direct}
 %package daemon-driver-storage-iscsi-direct
 Summary: Storage driver plugin for iscsi-direct
-Requires: libvirt-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 Requires: libiscsi
 
 %description daemon-driver-storage-iscsi-direct
@@ -694,8 +694,8 @@ volumes using libiscsi direct connection.
 
 %package daemon-driver-storage-mpath
 Summary: Storage driver plugin for multipath volumes
-Requires: libvirt-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 Requires: device-mapper
 
 %description daemon-driver-storage-mpath
@@ -706,8 +706,8 @@ multipath storage using device mapper.
 %if %{with_storage_gluster}
 %package daemon-driver-storage-gluster
 Summary: Storage driver plugin for gluster
-Requires: libvirt-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
     %if 0%{?fedora}
 Requires: glusterfs-client >= 2.0.1
     %endif
@@ -724,8 +724,8 @@ volumes using libgfapi.
 %if %{with_storage_rbd}
 %package daemon-driver-storage-rbd
 Summary: Storage driver plugin for rbd
-Requires: libvirt-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 
 %description daemon-driver-storage-rbd
 The storage driver backend adding implementation of the storage APIs for rbd
@@ -736,8 +736,8 @@ volumes using the ceph protocol.
 %if %{with_storage_sheepdog}
 %package daemon-driver-storage-sheepdog
 Summary: Storage driver plugin for sheepdog
-Requires: libvirt-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 Requires: sheepdog
 
 %description daemon-driver-storage-sheepdog
@@ -749,8 +749,8 @@ sheepdog volumes using.
 %if %{with_storage_zfs}
 %package daemon-driver-storage-zfs
 Summary: Storage driver plugin for ZFS
-Requires: libvirt-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 # Support any conforming implementation of zfs
 Requires: /sbin/zfs
 Requires: /sbin/zpool
@@ -763,26 +763,26 @@ ZFS volumes.
 
 %package daemon-driver-storage
 Summary: Storage driver plugin including all backends for the libvirtd daemon
-Requires: libvirt-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-storage-disk = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-storage-logical = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-storage-scsi = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-storage-iscsi = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-storage-mpath = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-core = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-disk = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-logical = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-scsi = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-iscsi = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-mpath = %{epoch}:%{version}-%{release}
 %if %{with_storage_iscsi_direct}
-Requires: libvirt-daemon-driver-storage-iscsi-direct = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-iscsi-direct = %{epoch}:%{version}-%{release}
 %endif
 %if %{with_storage_gluster}
-Requires: libvirt-daemon-driver-storage-gluster = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-gluster = %{epoch}:%{version}-%{release}
 %endif
 %if %{with_storage_rbd}
-Requires: libvirt-daemon-driver-storage-rbd = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-rbd = %{epoch}:%{version}-%{release}
 %endif
 %if %{with_storage_sheepdog}
-Requires: libvirt-daemon-driver-storage-sheepdog = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-sheepdog = %{epoch}:%{version}-%{release}
 %endif
 %if %{with_storage_zfs}
-Requires: libvirt-daemon-driver-storage-zfs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage-zfs = %{epoch}:%{version}-%{release}
 %endif
 
 %description daemon-driver-storage
@@ -794,8 +794,8 @@ parted and more.
 %if %{with_qemu}
 %package daemon-driver-qemu
 Summary: QEMU driver plugin for the libvirtd daemon
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 Requires: /usr/bin/qemu-img
 # For image compression
 Requires: gzip
@@ -816,11 +816,11 @@ QEMU
 %if %{with_lxc}
 %package daemon-driver-lxc
 Summary: LXC driver plugin for the libvirtd daemon
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 # There really is a hard cross-driver dependency here
 %if %{with_network}
-Requires: libvirt-daemon-driver-network = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-network = %{epoch}:%{version}-%{release}
 %endif
     %if 0%{?fedora} || 0%{?rhel} > 7
 Requires: systemd-container
@@ -836,8 +836,8 @@ the Linux kernel
 %if %{with_vbox}
 %package daemon-driver-vbox
 Summary: VirtualBox driver plugin for the libvirtd daemon
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 
 %description daemon-driver-vbox
 The vbox driver plugin for the libvirtd daemon, providing
@@ -849,10 +849,10 @@ VirtualBox
 %if %{with_libxl}
 %package daemon-driver-libxl
 Summary: Libxl driver plugin for the libvirtd daemon
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-libs = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-libs = %{epoch}:%{version}-%{release}
 Obsoletes: libvirt-daemon-driver-xen < 4.3.0
-Requires: xen-libs >= 2001:4.12.0~rc1-0
+Requires: xen-libs >= 2002:4.12.0~rc1-0
 # type=pvh syntax change
 Conflicts: qubes-core-dom0 < 4.0.20-1
 
@@ -863,21 +863,19 @@ Libxl
 %endif
 
 
-
 %if %{with_qemu_tcg}
 %package daemon-qemu
 Summary: Server side daemon & driver required to run QEMU guests
-
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-qemu = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-interface = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-qemu = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-interface = %{epoch}:%{version}-%{release}
 %if %{with_network}
-Requires: libvirt-daemon-driver-network = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-network = %{epoch}:%{version}-%{release}
 %endif
-Requires: libvirt-daemon-driver-nodedev = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-secret = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-storage = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-nodedev = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-secret = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage = %{epoch}:%{version}-%{release}
 Requires: qemu
 
 %description daemon-qemu
@@ -889,17 +887,16 @@ capabilities of the QEMU TCG emulators
 %if %{with_qemu_kvm}
 %package daemon-kvm
 Summary: Server side daemon & driver required to run KVM guests
-
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-qemu = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-interface = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-qemu = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-interface = %{epoch}:%{version}-%{release}
 %if %{with_network}
-Requires: libvirt-daemon-driver-network = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-network = %{epoch}:%{version}-%{release}
 %endif
-Requires: libvirt-daemon-driver-nodedev = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-secret = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-storage = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-nodedev = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-secret = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage = %{epoch}:%{version}-%{release}
 Requires: qemu-kvm
 
 %description daemon-kvm
@@ -911,17 +908,16 @@ capabilities of the KVM hypervisor
 %if %{with_lxc}
 %package daemon-lxc
 Summary: Server side daemon & driver required to run LXC guests
-
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-lxc = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-interface = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-lxc = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-interface = %{epoch}:%{version}-%{release}
 %if %{with_network}
-Requires: libvirt-daemon-driver-network = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-network = %{epoch}:%{version}-%{release}
 %endif
-Requires: libvirt-daemon-driver-nodedev = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-secret = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-storage = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-nodedev = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-secret = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage = %{epoch}:%{version}-%{release}
 
 %description daemon-lxc
 Server side daemon and driver required to manage the virtualization
@@ -932,19 +928,16 @@ capabilities of LXC
 %if %{with_libxl}
 %package daemon-xen
 Summary: Server side daemon & driver required to run XEN guests
-
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-    %if %{with_libxl}
-Requires: libvirt-daemon-driver-libxl = %{epoch}:%{version}-%{release}
-    %endif
-Requires: libvirt-daemon-driver-interface = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-libxl = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-interface = %{epoch}:%{version}-%{release}
 %if %{with_network}
-Requires: libvirt-daemon-driver-network = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-network = %{epoch}:%{version}-%{release}
 %endif
-Requires: libvirt-daemon-driver-nodedev = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-secret = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-storage = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-nodedev = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-secret = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage = %{epoch}:%{version}-%{release}
 Requires: xen
 
 %description daemon-xen
@@ -955,17 +948,16 @@ capabilities of XEN
 %if %{with_vbox}
 %package daemon-vbox
 Summary: Server side daemon & driver required to run VirtualBox guests
-
-Requires: libvirt-daemon = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-vbox = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-interface = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-vbox = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-interface = %{epoch}:%{version}-%{release}
 %if %{with_network}
-Requires: libvirt-daemon-driver-network = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-network = %{epoch}:%{version}-%{release}
 %endif
-Requires: libvirt-daemon-driver-nodedev = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-secret = %{epoch}:%{version}-%{release}
-Requires: libvirt-daemon-driver-storage = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-nodedev = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-nwfilter = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-secret = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-storage = %{epoch}:%{version}-%{release}
 
 %description daemon-vbox
 Server side daemon and driver required to manage the virtualization
@@ -1066,7 +1058,7 @@ driver
 %package nss
 Summary: Libvirt plugin for Name Service Switch
 %if %{with_network}
-Requires: libvirt-daemon-driver-network = %{epoch}:%{version}-%{release}
+Requires: %{name}-daemon-driver-network = %{epoch}:%{version}-%{release}
 %endif
 
 %description nss
@@ -1076,7 +1068,7 @@ Libvirt plugin for NSS for translating domain names into IP addresses.
 
 %prep
 
-%autosetup -S git_am
+%autosetup -n libvirt-%{version} -S git_am
 
 %build
 %if ! %{supported_platform}
@@ -1237,7 +1229,7 @@ exit 1
 
 # Disabled in Qubes because we generate spec; on the other hand, we get
 # SOURCE_DATE_EPOCH set by RPM based on changelog
-export SOURCE_DATE_EPOCH=$(stat --printf='%Y' %{_specdir}/%{name}.spec)
+# export SOURCE_DATE_EPOCH=$(stat --printf='%Y' %{_specdir}/%{name}.spec)
 
 %if 0%{?enable_autotools}
  autoreconf -if
@@ -1370,7 +1362,7 @@ chmod 600 $RPM_BUILD_ROOT%{_sysconfdir}/libvirt/nwfilter/*.xml
 rm -f $RPM_BUILD_ROOT%{_datadir}/augeas/lenses/libvirtd_qemu.aug
 rm -f $RPM_BUILD_ROOT%{_datadir}/augeas/lenses/tests/test_libvirtd_qemu.aug
 %endif
-%find_lang %{name}
+%find_lang libvirt
 
 %if ! %{with_sanlock}
 rm -f $RPM_BUILD_ROOT%{_datadir}/augeas/lenses/libvirt_sanlock.aug
@@ -1500,6 +1492,7 @@ systemctl try-restart libvirtd.service >/dev/null 2>&1 || :
 # END QUBES SPECIFIC PART
 
 %posttrans daemon
+%systemd_post libvirtd.service
 if [ -f %{_localstatedir}/lib/rpm-state/libvirt/restart ]; then
     # See if user has previously modified their install to
     # tell libvirtd to use --listen
@@ -1651,7 +1644,7 @@ exit 0
 %files
 
 %files docs
-%doc AUTHORS ChangeLog NEWS README README.rst
+%doc AUTHORS ChangeLog NEWS.rst README README.rst
 %doc %{_vpath_builddir}/libvirt-docs/*
 
 %files daemon
@@ -1762,7 +1755,7 @@ exit 0
 %{_unitdir}/virtinterfaced-ro.socket
 %{_unitdir}/virtinterfaced-admin.socket
 %attr(0755, root, root) %{_sbindir}/virtinterfaced
-%{_libdir}/%{name}/connection-driver/libvirt_driver_interface.so
+%{_libdir}/libvirt/connection-driver/libvirt_driver_interface.so
 
 %if %{with_network}
 %files daemon-driver-network
@@ -1782,7 +1775,7 @@ exit 0
 %dir %attr(0700, root, root) %{_localstatedir}/lib/libvirt/network/
 %dir %attr(0755, root, root) %{_localstatedir}/lib/libvirt/dnsmasq/
 %attr(0755, root, root) %{_libexecdir}/libvirt_leaseshelper
-%{_libdir}/%{name}/connection-driver/libvirt_driver_network.so
+%{_libdir}/libvirt/connection-driver/libvirt_driver_network.so
 
 %if %{with_firewalld_zone}
 %{_prefix}/lib/firewalld/zones/libvirt.xml
@@ -1799,7 +1792,7 @@ exit 0
 %{_unitdir}/virtnodedevd-ro.socket
 %{_unitdir}/virtnodedevd-admin.socket
 %attr(0755, root, root) %{_sbindir}/virtnodedevd
-%{_libdir}/%{name}/connection-driver/libvirt_driver_nodedev.so
+%{_libdir}/libvirt/connection-driver/libvirt_driver_nodedev.so
 
 %files daemon-driver-nwfilter
 %config(noreplace) %{_sysconfdir}/sysconfig/virtnwfilterd
@@ -1813,7 +1806,7 @@ exit 0
 %attr(0755, root, root) %{_sbindir}/virtnwfilterd
 %dir %attr(0700, root, root) %{_sysconfdir}/libvirt/nwfilter/
 %ghost %dir %{_rundir}/libvirt/network/
-%{_libdir}/%{name}/connection-driver/libvirt_driver_nwfilter.so
+%{_libdir}/libvirt/connection-driver/libvirt_driver_nwfilter.so
 
 %files daemon-driver-secret
 %config(noreplace) %{_sysconfdir}/sysconfig/virtsecretd
@@ -1825,7 +1818,7 @@ exit 0
 %{_unitdir}/virtsecretd-ro.socket
 %{_unitdir}/virtsecretd-admin.socket
 %attr(0755, root, root) %{_sbindir}/virtsecretd
-%{_libdir}/%{name}/connection-driver/libvirt_driver_secret.so
+%{_libdir}/libvirt/connection-driver/libvirt_driver_secret.so
 
 %files daemon-driver-storage
 
@@ -1840,49 +1833,49 @@ exit 0
 %{_unitdir}/virtstoraged-admin.socket
 %attr(0755, root, root) %{_sbindir}/virtstoraged
 %attr(0755, root, root) %{_libexecdir}/libvirt_parthelper
-%{_libdir}/%{name}/connection-driver/libvirt_driver_storage.so
-%{_libdir}/%{name}/storage-backend/libvirt_storage_backend_fs.so
-%{_libdir}/%{name}/storage-file/libvirt_storage_file_fs.so
+%{_libdir}/libvirt/connection-driver/libvirt_driver_storage.so
+%{_libdir}/libvirt/storage-backend/libvirt_storage_backend_fs.so
+%{_libdir}/libvirt/storage-file/libvirt_storage_file_fs.so
 
 %files daemon-driver-storage-disk
-%{_libdir}/%{name}/storage-backend/libvirt_storage_backend_disk.so
+%{_libdir}/libvirt/storage-backend/libvirt_storage_backend_disk.so
 
 %files daemon-driver-storage-logical
-%{_libdir}/%{name}/storage-backend/libvirt_storage_backend_logical.so
+%{_libdir}/libvirt/storage-backend/libvirt_storage_backend_logical.so
 
 %files daemon-driver-storage-scsi
-%{_libdir}/%{name}/storage-backend/libvirt_storage_backend_scsi.so
+%{_libdir}/libvirt/storage-backend/libvirt_storage_backend_scsi.so
 
 %files daemon-driver-storage-iscsi
-%{_libdir}/%{name}/storage-backend/libvirt_storage_backend_iscsi.so
+%{_libdir}/libvirt/storage-backend/libvirt_storage_backend_iscsi.so
 
 %if %{with_storage_iscsi_direct}
 %files daemon-driver-storage-iscsi-direct
-%{_libdir}/%{name}/storage-backend/libvirt_storage_backend_iscsi-direct.so
+%{_libdir}/libvirt/storage-backend/libvirt_storage_backend_iscsi-direct.so
 %endif
 
 %files daemon-driver-storage-mpath
-%{_libdir}/%{name}/storage-backend/libvirt_storage_backend_mpath.so
+%{_libdir}/libvirt/storage-backend/libvirt_storage_backend_mpath.so
 
 %if %{with_storage_gluster}
 %files daemon-driver-storage-gluster
-%{_libdir}/%{name}/storage-backend/libvirt_storage_backend_gluster.so
-%{_libdir}/%{name}/storage-file/libvirt_storage_file_gluster.so
+%{_libdir}/libvirt/storage-backend/libvirt_storage_backend_gluster.so
+%{_libdir}/libvirt/storage-file/libvirt_storage_file_gluster.so
 %endif
 
 %if %{with_storage_rbd}
 %files daemon-driver-storage-rbd
-%{_libdir}/%{name}/storage-backend/libvirt_storage_backend_rbd.so
+%{_libdir}/libvirt/storage-backend/libvirt_storage_backend_rbd.so
 %endif
 
 %if %{with_storage_sheepdog}
 %files daemon-driver-storage-sheepdog
-%{_libdir}/%{name}/storage-backend/libvirt_storage_backend_sheepdog.so
+%{_libdir}/libvirt/storage-backend/libvirt_storage_backend_sheepdog.so
 %endif
 
 %if %{with_storage_zfs}
 %files daemon-driver-storage-zfs
-%{_libdir}/%{name}/storage-backend/libvirt_storage_backend_zfs.so
+%{_libdir}/libvirt/storage-backend/libvirt_storage_backend_zfs.so
 %endif
 
 %if %{with_qemu}
@@ -1906,7 +1899,7 @@ exit 0
 %dir %attr(0750, %{qemu_user}, %{qemu_group}) %{_localstatedir}/cache/libvirt/qemu/
 %{_datadir}/augeas/lenses/libvirtd_qemu.aug
 %{_datadir}/augeas/lenses/tests/test_libvirtd_qemu.aug
-%{_libdir}/%{name}/connection-driver/libvirt_driver_qemu.so
+%{_libdir}/libvirt/connection-driver/libvirt_driver_qemu.so
 %dir %attr(0711, root, root) %{_localstatedir}/lib/libvirt/swtpm/
 %dir %attr(0711, root, root) %{_localstatedir}/log/swtpm/libvirt/qemu/
 %{_bindir}/virt-qemu-run
@@ -1932,7 +1925,7 @@ exit 0
 %{_datadir}/augeas/lenses/libvirtd_lxc.aug
 %{_datadir}/augeas/lenses/tests/test_libvirtd_lxc.aug
 %attr(0755, root, root) %{_libexecdir}/libvirt_lxc
-%{_libdir}/%{name}/connection-driver/libvirt_driver_lxc.so
+%{_libdir}/libvirt/connection-driver/libvirt_driver_lxc.so
 %endif
 
 %if %{with_libxl}
@@ -1954,7 +1947,7 @@ exit 0
 %dir %attr(0700, root, root) %{_localstatedir}/log/libvirt/libxl/
 %ghost %dir %{_rundir}/libvirt/libxl/
 %dir %attr(0700, root, root) %{_localstatedir}/lib/libvirt/libxl/
-%{_libdir}/%{name}/connection-driver/libvirt_driver_libxl.so
+%{_libdir}/libvirt/connection-driver/libvirt_driver_libxl.so
 %endif
 
 %if %{with_vbox}
@@ -1968,7 +1961,7 @@ exit 0
 %{_unitdir}/virtvboxd-ro.socket
 %{_unitdir}/virtvboxd-admin.socket
 %attr(0755, root, root) %{_sbindir}/virtvboxd
-%{_libdir}/%{name}/connection-driver/libvirt_driver_vbox.so
+%{_libdir}/libvirt/connection-driver/libvirt_driver_vbox.so
 %endif
 
 %if %{with_qemu_tcg}
@@ -2033,7 +2026,7 @@ exit 0
 %config(noreplace) %{_sysconfdir}/sysconfig/libvirt-guests
 %attr(0755, root, root) %{_libexecdir}/libvirt-guests.sh
 
-%files libs -f %{_vpath_builddir}/%{name}.lang
+%files libs -f %{_vpath_builddir}/libvirt.lang
 %license COPYING COPYING.LESSER
 %config(noreplace) %{_sysconfdir}/libvirt/libvirt.conf
 %config(noreplace) %{_sysconfdir}/libvirt/libvirt-admin.conf
