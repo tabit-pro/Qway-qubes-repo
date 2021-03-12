@@ -18,7 +18,7 @@ If you have a problem with repository features, please let us know through the i
 
 Source packages could be built using mock-scm plugin:
 ```
-    mock -r fedora-qbs.cfg --buildsrpm --scm-enable -scm-option package=pkgname
+    mock -r fedora-qbs.cfg --buildsrpm --scm-enable --scm-option package=pkgname
 ```
 * _fedora-qbs.cfg_ - mock configuration (example in current repo)
 * _pkgname_ - name of the directory in the current repo
@@ -26,6 +26,17 @@ Source packages could be built using mock-scm plugin:
 Binary packages could be built with mockchain:
 ```
     mockchain -r fedora-qbs.cfg --rebuild [srpm name] [srpm name]...
+```
+
+For detailed instance, take a look at process of building _qubes-windows-tools_ package:
+
+```
+# take a copy of mock config, it's not necessary to clone whole gitrepo
+wget https://raw.githubusercontent.com/tabit-pro/qway-qubes-repo/master/fedora-qbs.cfg
+# build source rpm package and place it to current directory (for qwt package downloading all tarballs may take a while)
+mock -r fedora-qbs.cfg --buildsrpm --scm-enable --scm-option package=qubes-windows-tools --resultdir ./
+# build binary package using srpm from previous step
+mock -r fedora-qbs.cfg --rebuild qway-qubes-repo qubes-windows-tools*.srpm --resultdir ./
 ```
 
 ## Install packages
