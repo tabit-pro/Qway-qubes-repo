@@ -36,7 +36,7 @@ wget https://raw.githubusercontent.com/tabit-pro/qway-qubes-repo/master/fedora-q
 # build source rpm package and place it to current directory (for qwt package downloading all tarballs may take a while)
 mock -r fedora-qbs.cfg --buildsrpm --scm-enable --scm-option package=qubes-windows-tools --resultdir ./
 # build binary package using srpm from previous step
-mock -r fedora-qbs.cfg --rebuild qway-qubes-repo qubes-windows-tools*.srpm --resultdir ./
+mock -r fedora-qbs.cfg --rebuild qubes-windows-tools*.src.rpm --resultdir ./
 ```
 
 ## Install packages
